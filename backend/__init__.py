@@ -33,6 +33,10 @@ from .faults import (
     order_sensitive_drill,
     post_effect_drill,
 )
+from .scoring import (
+    evaluate,
+    score_run,
+)
 
 __all__ = [
     # schemas
@@ -59,4 +63,7 @@ __all__ = [
     "k_of_n_drill",
     "order_sensitive_drill",
     "post_effect_drill",
+    # scoring
+    "evaluate",
+    "score_run",
     ]

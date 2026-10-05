@@ -40,9 +40,11 @@ from backend import (
     Phase,
     ScoreResult,
     ServedFrom,
+    evaluate,
     k_of_n_drill,
     order_sensitive_drill,
     post_effect_drill,
+    score_run,
 )
 
 API = "weather"
