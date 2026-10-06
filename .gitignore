@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# JIZO - the dashboard pages are generated at open()/render time, never committed
+frontend/_dashboard.html
+frontend/_preview.html
