@@ -96,13 +96,16 @@ async def _snapshot(session) -> dict[str, Any]:
         result = await session.execute(select(func.count()).select_from(model))
         counts[name] = int(result.scalar_one())
 
-    # Newest transition per api is the current state.
+    # Newest transition per api is the current state. Ordered by (ts, id):
+    # rows of one run are usually inserted in a single flush, so their `ts`
+    # values tie - ordering by timestamp alone would make the "current"
+    # breaker flip arbitrarily between polls.
     states: dict[str, str] = {}
     rows = await session.execute(
         select(
             BreakerTransitionRow.api_key,
             BreakerTransitionRow.to_state,
-        ).order_by(BreakerTransitionRow.ts.desc())
+        ).order_by(BreakerTransitionRow.ts.desc(), BreakerTransitionRow.id.desc())
     )
     for api_key, to_state in rows:
         states.setdefault(api_key, to_state)

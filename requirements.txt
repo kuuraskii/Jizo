@@ -2,10 +2,12 @@
 pydantic==2.13.5
 pytest==9.1.1
 
-# P2 protector (Aditi + Pushkar support) - uncomment when starting P2
-# httpx==0.28.1
-# structlog==24.4.0
-# anyio==4.6.2
+# P2 protector (Aditi + Pushkar support) - ACTIVE since merge 082d2bd.
+# Pins verified: test_breaker + test_logging (90 tests) pass on these exact
+# versions. Do not float them without re-running those files.
+httpx==0.28.1
+structlog==24.4.0
+anyio==4.6.2
 
 # P3 data/cloud (Aayush) - ACTIVE
 sqlalchemy==2.0.36

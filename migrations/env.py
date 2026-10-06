@@ -39,8 +39,16 @@ def _database_url() -> str:
             "the variable, then re-run the migration."
         )
     if "+asyncpg" not in url:
+        # Masked: the raw URL carries the password and this error lands in
+        # terminal output and CI logs.
+        try:
+            from sqlalchemy.engine import make_url
+
+            shown = make_url(url).render_as_string(hide_password=True)
+        except Exception:  # noqa: BLE001 - masking must never raise
+            shown = "the configured DATABASE_URL"
         raise RuntimeError(
-            f"DATABASE_URL must use the async driver, got {url!r}"
+            f"DATABASE_URL must use the async driver, got {shown!r}"
         )
     return url
 

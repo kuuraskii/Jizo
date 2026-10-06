@@ -9,7 +9,7 @@ of `seed.py` and freezing them by accident.
 
 | Task | Call |
 |---|---|
-| Load policies from the DB into P2's registry | `await register_registry(session)` |
+| Load policies from the DB into P2's registry | `policies = await load_registry(session)` then `register_registry(policies)` |
 | Grade + store a drill run | `await save_run(session, spec, result)` |
 | Read a stored verdict back | `await load_run(session, run_id)` |
 | Rebuild a run's evidence | `await load_evidence(session, trace_id)` |
@@ -42,7 +42,6 @@ of storing the timeline (Riya's note Sec. 10).
 from __future__ import annotations
 
 import datetime as dt
-import re
 from typing import Optional, Sequence
 
 from sqlalchemy import func, select
@@ -51,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .models import (
     ApiRegistryRow,
     BreakerTransitionRow,
+    CRITICALITY_VALUES,
     FiRunRow,
     RequestLogRow,
 )
@@ -117,7 +117,18 @@ def row_to_policy(row: ApiRegistryRow) -> ApiPolicy:
 
 
 def policy_to_row(policy: ApiPolicy, owner: Optional[str] = None) -> ApiRegistryRow:
-    """Turn a P1 `ApiPolicy` into a registry row ready to insert."""
+    """Turn a P1 `ApiPolicy` into a registry row ready to insert.
+
+    Validates `criticality` here, not at commit time: P1's `ApiPolicy`
+    accepts any string, but the table CHECKs `low|medium|high`. A policy the
+    DB would reject raises `ValueError` now, with the policy in hand - not an
+    `IntegrityError` later with a broken session.
+    """
+    if policy.criticality not in CRITICALITY_VALUES:
+        raise ValueError(
+            f"criticality {policy.criticality!r} is not stored; "
+            f"expected one of {CRITICALITY_VALUES}"
+        )
     return ApiRegistryRow(
         api_key=policy.api_key,
         base_url=policy.base_url,
@@ -223,6 +234,11 @@ def row_to_event(row: RequestLogRow) -> EvidenceEvent:
 
     Enough to feed straight back into P1's `score_run`, which is what makes a
     stored drill re-gradeable.
+
+    Lossy by necessity: `attempt`, `mode` and `guard` live on the row but have
+    nowhere to go on `EvidenceEvent`, so they are dropped. A
+    `load_evidence` -> `score_run` -> `save_run` round-trip therefore resets
+    every `attempt` to 1 unless the caller passes `attempts` explicitly.
     """
     return EvidenceEvent(
         trace_id=row.trace_id,
@@ -347,6 +363,8 @@ async def save_run(
     *,
     mode: Optional[str] = None,
     guard: Optional[str] = None,
+    attempts: Optional[Sequence[int]] = None,
+    commit: bool = True,
 ) -> FiRunRow:
     """Persist a drill run and return its row - one transaction, atomically.
 
@@ -372,11 +390,27 @@ async def save_run(
 
     `spec.run_id` is the primary key of `fi_runs`, so the verdict is applied
     to the row the spec created - never inserted as a second row.
+
+    `attempts` maps each event to its 1-based HTTP attempt, in order. Without
+    it every row is stored as attempt 1, which is wrong for any run that
+    retried - pass `ResilientResponse.attempts`-style per-event numbers from
+    the caller. A length mismatch raises `ValueError` rather than silently
+    mislabelling.
+
+    `commit` owns the transaction by default. Pass `commit=False` when this
+    call is one step of a larger unit of work (e.g. a FastAPI route that does
+    more after saving) - the rows are flushed so they are visible
+    in-transaction, and the caller commits or rolls back.
     """
     if spec.run_id != result.run_id:
         raise ValueError(
             f"spec.run_id {spec.run_id!r} != result.run_id {result.run_id!r}; "
             "a verdict must be stored against the run it graded"
+        )
+    if attempts is not None and events is not None and len(attempts) != len(events):
+        raise ValueError(
+            f"{len(attempts)} attempts for {len(events)} events; "
+            "pass one attempt number per event, in order"
         )
 
     row = await session.get(FiRunRow, spec.run_id)
@@ -397,13 +431,18 @@ async def save_run(
         if not await _evidence_already_stored(session, events):
             # One row per event. `guard`/`mode`/`attempt` cannot come from
             # EvidenceEvent, so the caller passes what it knows.
-            for event in events:
-                session.add(event_to_row(event, mode=mode, guard=guard))
+            for i, event in enumerate(events):
+                attempt = attempts[i] if attempts is not None else 1
+                session.add(event_to_row(event, mode=mode, guard=guard,
+                                         attempt=attempt))
 
     if row.ts is not None:
         # Verdict already recorded. Evidence may still have been missing
         # (a spec-only row), which the block above has now filled in.
-        await session.commit()
+        if commit:
+            await session.commit()
+        else:
+            await session.flush()
         return row
 
     # Apply the verdict to the existing row (either the one just added in
@@ -418,7 +457,10 @@ async def save_run(
     row.spec = result.spec.model_dump(mode="json") if result.spec else row.spec
     row.notes = list(result.notes)
 
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
     return row
 
 
@@ -427,8 +469,7 @@ async def load_run(session: AsyncSession, run_id: str) -> Optional[ScoreResult]:
 
     Returns `None` for an unknown run, and `None` for a run that never
     finished (`ts IS NULL`). An unfinished run is not a failure - it means the
-    drill started and never produced a verdict, which `load_run_status()`
-    reports explicitly.
+    drill started and never produced a verdict.
     """
     row = await session.get(FiRunRow, run_id)
     if row is None or row.ts is None:

@@ -113,7 +113,11 @@ def _policy_kwargs() -> dict[str, Any]:
 
 _WEATHER = ApiPolicy(
     api_key="weather",
-    base_url="https://api.open-meteo.com",
+    # Path-qualified, matching P3's `secrets.DEFAULTS["OPENMETEO_BASE"]`.
+    # P3's seed registers the same `weather` key through
+    # `store.register_registry()`, and last-writer-wins - so the two sources
+    # must agree, or the live policy flips depending on startup order.
+    base_url="https://api.open-meteo.com/v1/forecast",
     # A weather read has no side effects, so retrying is always safe.
     idempotent=True,
     criticality="medium",
@@ -122,7 +126,10 @@ _WEATHER = ApiPolicy(
 
 _GEOCODE = ApiPolicy(
     api_key="geocode",
-    base_url="https://nominatim.openstreetmap.org",
+    # Path-qualified, matching P3's `secrets.DEFAULTS["NOMINATIM_BASE"]`.
+    # Without `/search` real Nominatim calls fail - same last-writer-wins
+    # reason as above.
+    base_url="https://nominatim.openstreetmap.org/search",
     # Nominatim is a shared community service; be a polite guest.
     idempotent=True,
     criticality="medium",

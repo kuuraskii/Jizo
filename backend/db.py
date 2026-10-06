@@ -45,6 +45,16 @@ def _running_loop():
         return None
 
 
+def _masked_url(url: str) -> str:
+    """The URL with its password hidden, safe for errors and logs."""
+    try:
+        from sqlalchemy.engine import make_url
+
+        return make_url(url).render_as_string(hide_password=True)
+    except Exception:  # noqa: BLE001 - masking must never raise
+        return "the configured DATABASE_URL"
+
+
 def get_engine(database_url: Optional[str] = None) -> AsyncEngine:
     """Return the process-wide async engine, creating it on first use.
 
@@ -77,11 +87,14 @@ def get_engine(database_url: Optional[str] = None) -> AsyncEngine:
             )
         # Guard against the most common setup mistake: a sync URL handed to
         # an async engine. Failing here with a clear message beats a
-        # confusing driver error from asyncpg later.
+        # confusing driver error from asyncpg later. The URL is masked
+        # before it goes into the message - the raw string carries the
+        # password, and this error lands in startup logs.
         if "+asyncpg" not in url:
             raise RuntimeError(
-                f"DATABASE_URL must use the async driver: {url!r} is missing "
-                "'+asyncpg'. Expected postgresql+asyncpg://..."
+                "DATABASE_URL must use the async driver: "
+                f"{_masked_url(url)!r} is missing '+asyncpg'. "
+                "Expected postgresql+asyncpg://..."
             )
 
         _engine = create_async_engine(
