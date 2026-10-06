@@ -79,6 +79,7 @@ import contextlib
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import quote
 
@@ -89,10 +90,11 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,6 +102,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .breaker import BreakerRegistry
 from .compare import CompareResult, compare_sides, resolve_mode
 from .config import load_policy
+from .dashboard import Dashboard
+from .dashboard import snapshot as dashboard_snapshot
 from .db import dispose_engine, get_session, get_sessionmaker
 from .faults import EvidenceBus
 from .health import check_health, check_ready
@@ -141,6 +145,24 @@ VALUE_CACHE_MAX = 256
 #: unbounded value lets a single request tie up the worker with millions of
 #: calls. The demo never needs more than a handful; this only stops abuse.
 MAX_DRILL_OCCURRENCES = 100
+
+#: Seeded demo defaults - the fallback ladder's third rung. When the live API
+#: and the cache are both unavailable, the dispatcher still confirms a route
+#: for its home city instead of showing an error.
+_DEMO_DEFAULTS: dict[str, Any] = {
+    "weather": {
+        "source": "seeded default",
+        "location": "Delhi",
+        "temperature_2m": 31.0,
+        "wind_speed_10m": 8.4,
+    },
+    "geocode": {
+        "source": "seeded default",
+        "display_name": "New Delhi, Delhi, India",
+        "lat": 28.6139,
+        "lon": 77.2090,
+    },
+}
 
 
 class AppState:
@@ -591,11 +613,108 @@ async def breaker_state(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Routes: the demo front door + the dashboard
+# ---------------------------------------------------------------------------
+
+#: Where the static pages live (the demo page and the dashboard shell).
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+
+@app.get("/", response_class=HTMLResponse)
+async def demo_page() -> HTMLResponse:
+    """The demo app: a dispatcher that confirms a route through JIZO.
+
+    Served by the SAME process that owns the protection stack, so a click here
+    runs the real protector and writes real ``request_logs`` and breaker
+    transitions. That is what makes the demo provable instead of a mock.
+    """
+    return HTMLResponse((FRONTEND_DIR / "demo.html").read_text(encoding="utf-8"))
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page() -> HTMLResponse:
+    """The watchtower, served as a page so the demo can link straight to it.
+
+    Uses the same ``snapshot()`` the native window uses, so both show identical
+    numbers - and both read the rows the demo just wrote.
+    """
+    payload = await dashboard_snapshot()
+    return HTMLResponse(Dashboard().render_html(payload))
+
+
+@app.get("/dashboard/snapshot")
+async def dashboard_snapshot_route(
+    api_key: Optional[str] = None,
+) -> JSONResponse:
+    """Live data for the dashboard page's refresh timer."""
+    return JSONResponse(await dashboard_snapshot(api_key))
+
+
+# The dashboard shell loads these by relative path. A native window reads them
+# from disk; the /dashboard page needs them served, or it renders unstyled and
+# without its script.
+@app.get("/styles.css", include_in_schema=False)
+async def dashboard_css() -> Response:
+    return Response((FRONTEND_DIR / "styles.css").read_text(encoding="utf-8"),
+                    media_type="text/css")
+
+
+@app.get("/app.js", include_in_schema=False)
+async def dashboard_js() -> Response:
+    return Response((FRONTEND_DIR / "app.js").read_text(encoding="utf-8"),
+                    media_type="application/javascript")
+
+
+@app.get("/demo/activity")
+async def demo_activity(
+    trace_id: Optional[str] = None,
+    limit: int = 40,
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    """Recent ``request_logs`` - the raw proof the demo is not hardcoded.
+
+    Every row is an attempt the protector actually made, read straight out of
+    Postgres. The demo page shows these under the result.
+    """
+    if trace_id:
+        stmt = (
+            select(RequestLogRow)
+            .where(RequestLogRow.trace_id == trace_id)
+            .order_by(RequestLogRow.id)
+        )
+    else:
+        stmt = (
+            select(RequestLogRow)
+            .order_by(RequestLogRow.id.desc())
+            .limit(max(1, min(limit, 200)))
+        )
+    rows = (await session.execute(stmt)).scalars().all()
+    return JSONResponse(
+        {
+            "rows": [
+                {
+                    "traceId": r.trace_id,
+                    "apiKey": r.api_key,
+                    "phase": r.phase,
+                    "attempt": r.attempt,
+                    "status": r.status_code,
+                    "latencyMs": r.latency_ms,
+                    "servedFrom": r.served_from,
+                    "breakerState": r.breaker_state,
+                    "fault": r.fault,
+                }
+                for r in rows
+            ]
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Routes: the control-vs-experiment fan-out
 # ---------------------------------------------------------------------------
 
 
-def _plan_shape(address: str) -> dict[str, str]:
+def _plan_shape(address: str, simulate: bool = False) -> dict[str, str]:
     """Build the two upstream URLs for one address.
 
     One function so the control arm and the experiment arm request *identical*
@@ -606,7 +725,15 @@ def _plan_shape(address: str) -> dict[str, str]:
     it goes into a URL. Without that, ``a&limit=100`` injects an extra upstream
     parameter and ``New Delhi`` puts a raw space in the query - neither of which
     is the question the caller actually asked.
+
+    ``simulate`` points both at a dead port. That is the demo's "break the
+    upstreams" switch: the call path is untouched, so the real protector
+    retries, trips the breaker and walks the fallback ladder exactly as it
+    would in a real outage. Nothing is mocked.
     """
+    if simulate:
+        return {"weather": "http://127.0.0.1:9/weather",
+                "geocode": "http://127.0.0.1:9/geocode"}
     encoded = quote(address, safe="")
     return {
         "weather": (
@@ -626,6 +753,7 @@ async def route_plan(
     request: Request,
     mode: str = Query("experiment", description="control | experiment"),
     address: str = Query("Delhi", description="address to plan a route for"),
+    simulate: int = Query(0, description="1 = point the upstreams at a dead port"),
     session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """Fan out to weather and geocode, protected or unprotected, and compare.
@@ -653,7 +781,7 @@ async def route_plan(
     # trace), and it leaks an implementation detail into stored evidence.
     # The format mirrors P2's own `proxy._new_trace_id`.
     trace_id = f"t-plan-{uuid.uuid4().hex[:12]}"
-    urls = _plan_shape(address)
+    urls = _plan_shape(address, simulate=bool(simulate))
     registry = state.registry
 
     # ONE EvidenceBus per arm, both keyed by the SAME trace_id.
@@ -687,7 +815,13 @@ async def route_plan(
                 else None
             )
             if protected:
-                fallback = state.ladder_for(f"{api_key}:{address}")
+                # `default` is the ladder's third rung. Without it a failed
+                # live call skips straight to the terminal message, so the
+                # demo's "served the seeded default" moment never happens.
+                fallback = state.ladder_for(
+                    f"{api_key}:{address}",
+                    default=_DEMO_DEFAULTS.get(api_key),
+                )
             else:
                 # The control arm must be genuinely unprotected. It previously
                 # reused the experiment arm's ladder (same cache key

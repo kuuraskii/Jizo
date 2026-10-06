@@ -385,9 +385,17 @@ function apply(payload, focus) {
 }
 
 async function refreshViaHost() {
-  if (!window.pywebview || !window.pywebview.api) return;
   try {
-    const fresh = await window.pywebview.api.get_snapshot(state.selected);
+    let fresh;
+    if (window.pywebview && window.pywebview.api) {
+      // native window: the Python bridge
+      fresh = await window.pywebview.api.get_snapshot(state.selected);
+    } else {
+      // served as a page (e.g. /dashboard): the same snapshot over HTTP
+      const url = "/dashboard/snapshot?api_key=" +
+        encodeURIComponent(state.selected || "");
+      fresh = await (await fetch(url)).json();
+    }
     apply(fresh, state.selected);
   } catch (err) { /* keep the last good render */ }
 }
