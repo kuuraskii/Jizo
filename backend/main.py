@@ -80,6 +80,7 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import (
@@ -104,7 +105,7 @@ from .health import check_health, check_ready
 from .logging_conf import configure_logging, get_logger
 from .models import FiRunRow, RequestLogRow
 from .proxy import FallbackLadder, resilient_get
-from .schemas import EvidenceEvent, FiRun, ServedFrom
+from .schemas import DrillSpec, EvidenceEvent, FiRun, ScoreResult, ServedFrom
 from .scoring import score_run
 from .secrets import get_config
 from .store import (
@@ -132,6 +133,12 @@ logger = logging.getLogger("jizo.main")
 #: Cap on the in-process value cache. Small on purpose: this is a demo aid, not
 #: a tier, and an unbounded dict in a long-lived server is a slow leak.
 VALUE_CACHE_MAX = 256
+
+#: Upper bound on one drill's logical occurrence count. ``total_occurrences`` is
+#: caller-supplied and every occurrence is a real protected upstream call, so an
+#: unbounded value lets a single request tie up the worker with millions of
+#: calls. The demo never needs more than a handful; this only stops abuse.
+MAX_DRILL_OCCURRENCES = 100
 
 
 class AppState:
@@ -306,6 +313,28 @@ def _attempts_by_api(results: dict) -> dict[str, int]:
         if isinstance(attempts, int) and attempts >= 1:
             found[api_key] = attempts
     return found
+
+
+def _verdict_payload(verdict: ScoreResult, spec: DrillSpec) -> dict:
+    """The JSON body ``/fi/run`` returns for one graded drill.
+
+    Factored out so the fresh path and the idempotent "this run already
+    finished" path return byte-identical shapes - a client must not need to
+    knowing which path answered.
+    """
+    return {
+        "run_id": verdict.run_id,
+        "pattern": verdict.pattern.value,
+        "ts": verdict.ts,
+        "cw": verdict.cw,
+        "ps": verdict.ps,
+        "prem": verdict.prem,
+        "miss": verdict.miss,
+        "mult": verdict.mult,
+        "explain": verdict.explain(),
+        "notes": verdict.notes,
+        "spec": spec.summary(),
+    }
 
 
 async def _persist_events(
@@ -531,16 +560,22 @@ def _plan_shape(address: str) -> dict[str, str]:
     One function so the control arm and the experiment arm request *identical*
     URLs. A comparison where the two arms asked different questions would prove
     nothing, and this is the only place that difference could creep in.
+
+    ``address`` arrives as a user query parameter and is percent-encoded before
+    it goes into a URL. Without that, ``a&limit=100`` injects an extra upstream
+    parameter and ``New Delhi`` puts a raw space in the query - neither of which
+    is the question the caller actually asked.
     """
+    encoded = quote(address, safe="")
     return {
         "weather": (
             "https://api.open-meteo.com/v1/forecast"
             f"?latitude=28.6139&longitude=77.2090&current=temperature_2m"
-            f"&timezone=auto&label={address}"
+            f"&timezone=auto&label={encoded}"
         ),
         "geocode": (
             "https://nominatim.openstreetmap.org/search"
-            f"?q={address}&format=json&limit=1"
+            f"?q={encoded}&format=json&limit=1"
         ),
     }
 
@@ -610,6 +645,20 @@ async def route_plan(
                 if api_key == "geocode"
                 else None
             )
+            if protected:
+                fallback = state.ladder_for(f"{api_key}:{address}")
+            else:
+                # The control arm must be genuinely unprotected. It previously
+                # reused the experiment arm's ladder (same cache key
+                # ``{api}:{address}``) and P2's default retry budget, so a
+                # control call that failed could be served from the value the
+                # protected arm had just cached, and retried exactly like the
+                # protected path. That measures protection against something
+                # that is itself protected. No cache/default rung and a single
+                # attempt make control the raw upstream call this module
+                # documents it as.
+                policy = policy.model_copy(update={"max_attempts": 1})
+                fallback = FallbackLadder()
             return await resilient_get(
                 api_key,
                 urls[api_key],
@@ -618,7 +667,7 @@ async def route_plan(
                 trace_id=trace_id,
                 bus=bus,
                 breaker=breaker,
-                fallback=state.ladder_for(f"{api_key}:{address}"),
+                fallback=fallback,
                 client=state.http(),
             )
 
@@ -651,8 +700,14 @@ async def route_plan(
                     "error": f"{type(response).__name__}",
                 }
                 continue
-            # A successful live answer becomes a future fallback value.
-            if response.served_from is ServedFrom.LIVE and response.data is not None:
+            # A successful live answer becomes a future fallback value - but
+            # only on the protected arm. The cache *is* the protection, so the
+            # unprotected control arm must neither write it nor (above) read it.
+            if (
+                protected
+                and response.served_from is ServedFrom.LIVE
+                and response.data is not None
+            ):
                 state.remember(f"{api_key}:{address}", response.data)
             results[api_key] = {
                 "api_key": api_key,
@@ -763,37 +818,68 @@ async def fi_run(
     ``total_occurrences == 1`` this is exactly one call, which is what the
     single-call version of this route did.
 
-    ## Callers must use a fresh ``run_id`` per execution
+    ## Re-firing a finished ``run_id`` is idempotent, not fatal
 
-    ``run_id`` is the primary key of ``fi_runs``, and P3's ``save_run`` treats a
-    run that already carries a verdict as complete and idempotent: re-firing the
-    same ``run_id`` returns the FIRST verdict and rewrites nothing. That is
-    P3's deliberate behaviour, not something to work around here. It does mean
-    the FI console must mint a unique ``run_id`` for every click, or the panel
+    ``run_id`` is the primary key of ``fi_runs``. P3's ``save_run`` treats a run
+    that already carries a verdict as complete and idempotent, so this route
+    looks it up *first* and returns the stored verdict rather than re-inserting
+    the plan row. A retried HTTP request - or a second click on the same run -
+    used to hit ``fi_runs_pkey`` and 500; it now gets the first verdict back.
+    The FI console should still mint a unique ``run_id`` per click, or the panel
     will keep showing the first drill's numbers.
     """
     state = state_of(request)
     spec = body.to_spec()
     trace_id = spec.run_id
 
-    policy = load_policy(spec.target.api_key)
+    if spec.total_occurrences > MAX_DRILL_OCCURRENCES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"total_occurrences {spec.total_occurrences} exceeds the "
+                f"maximum of {MAX_DRILL_OCCURRENCES}"
+            ),
+        )
+
+    try:
+        policy = load_policy(spec.target.api_key)
+    except KeyError as exc:
+        # Same class of mistake edgecases L-05 flags for build_spec: a bad name
+        # must be a readable 4xx, not an unhandled KeyError turned into a 500.
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown api_key {spec.target.api_key!r}",
+        ) from exc
+
+    # A finished run is idempotent in P3. Return its stored verdict instead of
+    # colliding on fi_runs' primary key - a retried request previously 500'd.
+    existing = await session.get(FiRunRow, spec.run_id)
+    if existing is not None and existing.ts is not None:
+        stored = await load_run(session, spec.run_id)
+        if stored is not None:
+            return JSONResponse(_verdict_payload(stored, spec))
+
     # One bus for the whole drill. No GuardEvaluator is constructed here:
     # `resilient_get` builds its own internally when both `bus` and `spec` are
     # supplied (proxy.py), and only when `spec.target.api_key` matches the
     # call's api_key. A second instance was dead code.
     bus = EvidenceBus()
 
-    # Record the plan before anything can fail.
-    session.add(spec_to_row(spec))
-    await session.commit()
+    # Record the plan before anything can fail. A row may already exist from an
+    # earlier attempt that never finished; leave it for save_run to repair.
+    if existing is None:
+        session.add(spec_to_row(spec))
+        await session.commit()
 
     fault_events: list[EvidenceEvent] = []
+    attempts_for_events: list[int] = []
     try:
         # One iteration per LOGICAL occurrence. Retries happen inside a single
         # `resilient_get` call and stay inside it, so `call_index` advances
         # exactly once per iteration no matter how many attempts were made.
         for _occurrence in range(1, spec.total_occurrences + 1):
-            await resilient_get(
+            before = len(bus.events(trace_id))
+            response = await resilient_get(
                 spec.target.api_key,
                 policy.base_url,
                 policy=policy,
@@ -803,6 +889,18 @@ async def fi_run(
                 fallback=state.ladder_for(spec.target.api_key),
                 spec=spec,
                 client=state.http(),
+            )
+            # `attempts` is this occurrence's TOTAL HTTP attempts. The bus may
+            # have appended several rows for it, and each carries that total -
+            # a call that took three tries must not be stored as one.
+            raw_attempts = getattr(response, "attempts", None)
+            total = (
+                raw_attempts
+                if isinstance(raw_attempts, int) and raw_attempts >= 1
+                else 1
+            )
+            attempts_for_events.extend(
+                [total] * (len(bus.events(trace_id)) - before)
             )
         # The bus is the single authority for evidence. Using
         # `result.events` instead would only ever be a subset of it, and
@@ -831,6 +929,13 @@ async def fi_run(
         events=fault_events,
         mode="experiment",
         guard=spec.guard.describe(),
+        # One attempt number per event, so a retried call is no longer stored
+        # as a single attempt. Guarded on the length save_run requires.
+        attempts=(
+            attempts_for_events
+            if len(attempts_for_events) == len(fault_events)
+            else None
+        ),
     )
 
     await hub.broadcast(
@@ -838,21 +943,7 @@ async def fi_run(
         {"run_id": verdict.run_id, "ts": verdict.ts, "explain": verdict.explain()},
     )
 
-    return JSONResponse(
-        {
-            "run_id": verdict.run_id,
-            "pattern": verdict.pattern.value,
-            "ts": verdict.ts,
-            "cw": verdict.cw,
-            "ps": verdict.ps,
-            "prem": verdict.prem,
-            "miss": verdict.miss,
-            "mult": verdict.mult,
-            "explain": verdict.explain(),
-            "notes": verdict.notes,
-            "spec": spec.summary(),
-        }
-    )
+    return JSONResponse(_verdict_payload(verdict, spec))
 
 
 @app.get("/fi/runs/{run_id}")
