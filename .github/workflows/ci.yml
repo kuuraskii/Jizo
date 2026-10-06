@@ -1,0 +1,83 @@
+# JIZO CI (owner: P6).
+#
+# Two gates, both required before a merge:
+#   test    - the whole suite against a real Postgres, seeded like the demo
+#   secrets - gitleaks + the reviewed detect-secrets baseline
+#
+# The database is a service container so the P3-backed tests actually run
+# instead of skipping. A suite that skips its integration half is not a gate.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: pytest (with Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: resilient
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d resilient"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-cov
+
+      - name: Apply migrations
+        run: python -m alembic upgrade head
+
+      - name: Seed demo data
+        run: python -m backend.seed
+
+      - name: Run the suite
+        run: python -m pytest -q
+
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: detect-secrets (against the reviewed baseline)
+        run: |
+          pip install detect-secrets==1.5.0
+          detect-secrets scan --baseline .secrets.baseline
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

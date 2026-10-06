@@ -1,0 +1,36 @@
+# JIZO pre-commit gates (owner: P6).
+#
+#   pip install pre-commit
+#   pre-commit install
+#
+# Two jobs: keep the files tidy, and stop a secret ever reaching a commit.
+# The secret scan uses `.secrets.baseline` - every finding in it has been
+# reviewed and is a known false positive (the documented demo credential,
+# and the words "api_key" / "PASSWORD" in comments). The hook fails only on
+# something NEW, which is what you want.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=600"]
+      - id: check-yaml
+      - id: check-json
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        # The dashboard pages are generated at open() time and are gitignored,
+        # but exclude them defensively so a stray local copy never trips this.
+        exclude: ^frontend/_(dashboard|preview)\.html$
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
