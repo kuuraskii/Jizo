@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JIZO Dashboard</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <span class="blob blob-a"></span>
+    <span class="blob blob-b"></span>
+    <span class="blob blob-c"></span>
+  </div>
+
+  <div class="app">
+    <header class="toolbar glass">
+      <div class="brand">
+        <span class="mark">J</span>
+        <span class="title">JIZO <span class="sub">Dashboard</span></span>
+        <span class="brand-icons" aria-hidden="true"><span>◎</span><span>⚑</span><span>⌘</span><span>⚙</span></span>
+      </div>
+      <nav class="toolbar-actions">
+        <span class="chip" id="dbChip">db: …</span>
+        <span class="chip">Last 6 hours</span>
+        <span class="chip">Refresh every <b>5s</b> <span class="live-dot"></span></span>
+      </nav>
+    </header>
+
+    <section class="filterbar glass">
+      <label class="field select-field">
+        <span class="field-label">API Key</span>
+        <span class="select-wrap"><select id="apiKeySelect" aria-label="Choose an API key"></select></span>
+      </label>
+      <div class="field"><span class="field-label">Service</span><span class="field-value" id="focusService">—</span></div>
+      <div class="field"><span class="field-label">Breaker</span><span class="field-value" id="focusState">—</span></div>
+      <div class="field"><span class="field-label">Criticality</span><span class="field-value" id="focusCrit">—</span></div>
+      <div class="field"><span class="field-label">Owner</span><span class="field-value" id="focusOwner">—</span></div>
+      <div class="field"><span class="field-label">Window</span><span class="field-value" id="focusWindow">—</span></div>
+    </section>
+
+    <main class="board">
+      <!-- row 1: status / error / latency (Hystrix row 1) -->
+      <section class="row row1">
+        <article class="card glass hero">
+          <h2 class="card-title">Overall Status</h2>
+          <div class="card-body" id="overallBody"></div>
+        </article>
+        <article class="card glass">
+          <h2 class="card-title">Error Rate</h2>
+          <div class="card-body" id="errorBody"></div>
+        </article>
+        <article class="card glass">
+          <h2 class="card-title">Mean Latency <span class="unit">(ms)</span></h2>
+          <div class="card-body" id="meanBody"></div>
+        </article>
+        <article class="card glass">
+          <h2 class="card-title">Total Latency (90th) <span class="unit">(ms)</span></h2>
+          <div class="card-body" id="p90Body"></div>
+        </article>
+        <article class="card glass">
+          <h2 class="card-title">Total Latency (99th) <span class="unit">(ms)</span></h2>
+          <div class="card-body" id="p99Body"></div>
+        </article>
+      </section>
+
+      <!-- rows 2 & 3: the eight trend charts (Hystrix rows 2 and 3) -->
+      <section class="row row-charts" id="chartsRowA"></section>
+      <section class="row row-charts" id="chartsRowB"></section>
+
+      <!-- row 4: the proof panels that make JIZO's claim, kept visible -->
+      <section class="row row4">
+        <article class="card glass">
+          <h2 class="card-title">Drill Scorecards <span class="unit">(TS by pattern)</span></h2>
+          <div class="card-body" id="scorecardsBody"></div>
+        </article>
+        <article class="card glass">
+          <h2 class="card-title">4-Axis Resilience</h2>
+          <div class="card-body radar-body" id="radarBody"></div>
+        </article>
+        <article class="card glass">
+          <h2 class="card-title">Protected vs Control</h2>
+          <div class="card-body" id="compareBody"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script id="boot" type="application/json">__JIZO_DATA__</script>
+  <script src="app.js"></script>
+</body>
+</html>

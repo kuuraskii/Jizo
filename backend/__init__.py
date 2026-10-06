@@ -59,6 +59,10 @@ from .axes import (
     axis_scores,
     axis_scores_from_events,
 )
+# NOTE: the *function* `dashboard` is deliberately not re-exported here - the
+# name would shadow the `backend.dashboard` module. Call
+# `backend.dashboard.dashboard(...)`, or import it from `backend.dashboard`.
+from .dashboard import Dashboard, snapshot
 
 __all__ = [
     # schemas
@@ -107,4 +111,8 @@ __all__ = [
     "AxisScore",
     "axis_scores",
     "axis_scores_from_events",
+    # dashboard (P5) - the module's own `dashboard()` factory is reached via
+    # `backend.dashboard.dashboard(...)`
+    "Dashboard",
+    "snapshot",
 ]

@@ -1,0 +1,178 @@
+/* ==========================================================================
+   JIZO dashboard - true dark foundation, neon accents, glass finish.
+   Owner: Pushkar (P5).
+
+   Layout rule that matters: the whole board is a 100vh grid that NEVER
+   scrolls. Every panel - including all eight trend charts - is on screen at
+   once, which is the one thing the Hystrix dashboard gets right.
+
+   Colour rule: near-black everywhere; colour is reserved for state. Green/cyan
+   means healthy, amber means warning, hot pink means critical - and only the
+   critical things glow.
+   ========================================================================== */
+
+:root {
+  --bg-0: #0a0a0c;          /* near-black foundation */
+  --bg-1: #111318;
+  --panel: #1a1d24;         /* card body */
+  --panel-border: #2a2f3d;  /* 1px card border */
+  --panel-border-lit: #3b4256;
+
+  --text: #e2e8f0;          /* bright, not dim grey */
+  --muted: #94a3b8;
+  --faint: #64748b;
+
+  /* neon accents - used sparingly, on state only */
+  --cyan: #00f0ff;          /* success / healthy */
+  --green: #00ff66;         /* success (charts) */
+  --amber: #ffb800;         /* warning / moderate */
+  --pink: #ff0055;          /* critical / NOT WELL */
+  --accent: #00f0ff;
+
+  --radius: 12px;
+  --font: "Segoe UI", Inter, system-ui, sans-serif;
+  --mono: "Cascadia Code", Consolas, ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; font-family: var(--font); color: var(--text);
+  background:
+    radial-gradient(900px 520px at 6% -14%, rgba(0, 240, 255, 0.07), transparent 60%),
+    radial-gradient(860px 500px at 104% -8%, rgba(255, 0, 85, 0.06), transparent 58%),
+    var(--bg-0);
+}
+
+.backdrop { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.blob { position: absolute; border-radius: 50%; filter: blur(110px); opacity: 0.16; }
+.blob-a { width: 420px; height: 420px; top: -110px; left: 6%; background: radial-gradient(circle, #00f0ff, transparent 70%); }
+.blob-b { width: 500px; height: 500px; top: 30%; right: -170px; background: radial-gradient(circle, #ff0055, transparent 70%); }
+.blob-c { width: 440px; height: 440px; bottom: -220px; left: 34%; background: radial-gradient(circle, #ffb800, transparent 70%); }
+
+.app {
+  position: relative; z-index: 1; height: 100vh; overflow: hidden;
+  display: flex; flex-direction: column; gap: 7px; padding: 8px 12px;
+}
+
+/* Dark glass: a solid #1A1D24 panel with a 1px #2A2F3D edge, softened by a
+   light blur so the ambient glow behind it still reads. */
+.glass {
+  background: rgba(26, 29, 36, 0.72);
+  backdrop-filter: blur(18px) saturate(125%);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  border: 1px solid var(--panel-border);
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+/* --- toolbar (compact) -------------------------------------------------- */
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 12px; border-radius: var(--radius); flex: 0 0 auto; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.mark { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: #04121a; background: linear-gradient(135deg, var(--cyan), var(--pink)); box-shadow: 0 0 16px rgba(0, 240, 255, 0.5); }
+.title { font-size: 15px; font-weight: 700; }
+.title .sub { color: var(--muted); font-weight: 500; }
+.brand-icons { display: flex; gap: 9px; color: var(--faint); font-size: 12px; }
+.toolbar-actions { display: flex; align-items: center; gap: 8px; }
+.chip { font: inherit; font-size: 11.5px; color: var(--muted); background: rgba(255, 255, 255, 0.04); border: 1px solid var(--panel-border); padding: 4px 10px; border-radius: 999px; }
+.chip b { color: var(--text); }
+.live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-left: 5px; box-shadow: 0 0 10px rgba(0, 255, 102, 0.9); }
+
+/* --- filter / focus bar ------------------------------------------------- */
+.filterbar { display: flex; align-items: center; gap: 22px; padding: 6px 14px; border-radius: var(--radius); flex: 0 0 auto; }
+.field { display: flex; flex-direction: column; gap: 2px; min-width: 96px; }
+.field-label { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+.field-value { font-size: 12.5px; font-weight: 600; }
+.select-wrap { position: relative; }
+.select-wrap::after { content: "⌄"; position: absolute; right: 11px; top: 50%; transform: translateY(-54%); color: var(--cyan); pointer-events: none; font-size: 13px; }
+#apiKeySelect {
+  appearance: none; -webkit-appearance: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text);
+  background: rgba(0, 240, 255, 0.10);
+  border: 1px solid rgba(0, 240, 255, 0.55); border-radius: 8px; padding: 5px 36px 5px 11px; min-width: 190px; cursor: pointer;
+  box-shadow: 0 0 14px rgba(0, 240, 255, 0.22), inset 0 0 12px rgba(0, 240, 255, 0.08);
+}
+#apiKeySelect:hover { border-color: var(--cyan); box-shadow: 0 0 20px rgba(0, 240, 255, 0.4); }
+#apiKeySelect option { background: #14171d; color: var(--text); }
+
+/* --- the board: fills the rest of the viewport, never scrolls ----------- */
+.board { flex: 1 1 auto; min-height: 0; display: grid; gap: 7px; grid-template-rows: 1.15fr 0.92fr 0.92fr 1.0fr; }
+.row { display: grid; gap: 7px; min-height: 0; }
+.row1 { grid-template-columns: 1.05fr 0.8fr 1.7fr 1.6fr 1.6fr; }
+.row-charts { grid-template-columns: repeat(4, 1fr); }
+.row4 { grid-template-columns: 1.25fr 1fr 1.45fr; }
+
+.card { border-radius: var(--radius); padding: 8px 11px 9px; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.card-title { margin: 0 0 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.card-title .unit { color: var(--faint); font-weight: 500; }
+.card-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* --- hero / big number (the glow lives here) ---------------------------- */
+.hero-value { font-size: clamp(20px, 2.4vw, 38px); font-weight: 800; line-height: 1.02; margin: auto 0; }
+.hero-value.tone-not_well { color: var(--pink); text-shadow: 0 0 14px rgba(255, 0, 85, 0.65), 0 0 42px rgba(255, 0, 85, 0.35); }
+.hero-value.tone-degraded { color: var(--amber); text-shadow: 0 0 14px rgba(255, 184, 0, 0.55), 0 0 36px rgba(255, 184, 0, 0.28); }
+.hero-value.tone-healthy { color: var(--cyan); text-shadow: 0 0 14px rgba(0, 240, 255, 0.60), 0 0 38px rgba(0, 240, 255, 0.30); }
+.hero-value.tone-unknown { color: var(--faint); }
+.hero-reason { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.bignum { font-size: clamp(20px, 2.4vw, 38px); font-weight: 800; margin: auto 0; }
+.bignum.tone-bad { color: var(--pink); text-shadow: 0 0 14px rgba(255, 0, 85, 0.55); }
+.bignum.tone-warn { color: var(--amber); text-shadow: 0 0 12px rgba(255, 184, 0, 0.45); }
+.bignum.tone-ok { color: var(--green); text-shadow: 0 0 12px rgba(0, 255, 102, 0.45); }
+.bignum-sub { color: var(--muted); font-size: 10.5px; }
+
+/* --- metric tables ------------------------------------------------------ */
+.metric-table { width: 100%; border-collapse: collapse; font-size: 11px; table-layout: fixed; }
+.metric-table th { text-align: left; color: var(--faint); font-weight: 600; font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; padding: 0 0 4px; }
+.metric-table th:last-child { text-align: right; }
+.metric-table td { padding: 3px 0; border-top: 1px solid rgba(255, 255, 255, 0.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric-table td.value { text-align: right; font-family: var(--mono); font-weight: 600; }
+.metric-table tr.focused td { color: var(--cyan); text-shadow: 0 0 10px rgba(0, 240, 255, 0.35); }
+.metric-table tr.dim td { color: var(--faint); }
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; }
+
+/* --- charts (Hystrix-style: plot + axis + legend) ----------------------- */
+.card-body.chart { gap: 2px; }
+.chart-top { display: flex; align-items: baseline; justify-content: space-between; }
+.chart-value { font-family: var(--mono); font-size: 14px; font-weight: 700; }
+.chart-max { font-size: 9px; color: var(--faint); }
+.chart-plot { position: relative; flex: 1; min-height: 0; border-left: 1px solid rgba(255, 255, 255, 0.09); border-bottom: 1px solid rgba(255, 255, 255, 0.09); }
+.chart-grid { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255, 255, 255, 0.05); }
+svg.spark { position: absolute; inset: 0; width: 100%; height: 100%; }
+.chart-axis { display: flex; justify-content: space-between; font-size: 8.5px; color: var(--faint); padding-top: 2px; }
+.chart-legend { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); padding-top: 3px; }
+.chart-legend .legend-line { display: inline-block; width: 16px; height: 3px; border-radius: 2px; }
+.chart-legend b { color: var(--text); font-family: var(--mono); margin-left: auto; }
+
+/* --- scorecards --------------------------------------------------------- */
+.sc-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.sc-row:first-child { border-top: 0; }
+.sc-pattern { flex: 1; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sc-bar { width: 70px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.sc-bar > i { display: block; height: 100%; }
+.sc-pct { font-family: var(--mono); font-size: 11px; width: 46px; text-align: right; }
+.sc-runs { color: var(--faint); font-size: 10px; width: 40px; text-align: right; }
+
+/* --- radar -------------------------------------------------------------- */
+.radar-body { align-items: center; justify-content: center; }
+.radar { width: 100%; height: 100%; max-height: 150px; }
+.radar-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: center; margin-top: 4px; }
+.radar-legend .item { font-size: 9.5px; color: var(--muted); }
+.radar-legend .item b { color: var(--text); font-family: var(--mono); }
+
+/* --- compare bars ------------------------------------------------------- */
+.cmp-grid { display: flex; flex-direction: column; gap: 8px; justify-content: center; height: 100%; }
+.cmp-row { display: grid; grid-template-columns: 62px 1fr 54px; align-items: center; gap: 8px; }
+.cmp-label { font-size: 10.5px; color: var(--muted); }
+.cmp-bars { display: flex; flex-direction: column; gap: 4px; }
+.cmp-line { display: flex; align-items: center; gap: 6px; }
+.cmp-bar { position: relative; flex: 1; height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.cmp-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; }
+.cmp-bar.control > i { background: linear-gradient(90deg, #475569, #64748b); }
+.cmp-bar.experiment > i { background: linear-gradient(90deg, #00b8d4, var(--cyan)); box-shadow: 0 0 10px rgba(0, 240, 255, 0.5); }
+.cmp-val { font-family: var(--mono); font-size: 9.5px; color: var(--faint); width: 30px; }
+.cmp-delta { font-family: var(--mono); font-size: 11px; text-align: right; }
+.cmp-delta.up { color: var(--cyan); }
+.cmp-delta.down { color: var(--pink); }
+
+.empty { margin: auto; color: var(--faint); font-size: 11px; text-align: center; }
+.db-bad { color: var(--amber); }

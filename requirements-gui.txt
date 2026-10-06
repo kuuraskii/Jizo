@@ -1,0 +1,13 @@
+# JIZO - P5 native-window extra (owner: Pushkar).
+#
+# OPTIONAL on purpose. `import backend` and the whole test suite must keep
+# working with only `requirements.txt`; the dashboard is the one part that
+# needs a real OS webview, so it lives here.
+#
+#   pip install -r requirements-gui.txt
+#   python -c "from backend.dashboard import dashboard; dashboard('weather').open()"
+#
+# If pywebview (or the OS WebView2/WebKit runtime) is missing, `open()` falls
+# back to the system browser rather than crashing on stage - see
+# backend/dashboard.py.
+pywebview==6.2.1
