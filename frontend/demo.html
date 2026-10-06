@@ -16,56 +16,52 @@
     font-family: "Segoe UI", Inter, system-ui, sans-serif;
     display: flex; justify-content: center; padding: 34px 20px;
   }
-  .wrap { width: 100%; max-width: 940px; }
-  h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: 0.2px; }
+  .wrap { width: 100%; max-width: 960px; }
+  h1 { margin: 0; font-size: 26px; font-weight: 700; }
 
-  .mechanism {
-    margin-top: 10px; color: var(--muted); font-size: 14px;
-    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  }
-  .layer {
-    padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border);
-    color: var(--faint); font-size: 12.5px; font-weight: 600;
-  }
+  .mechanism { margin-top: 10px; color: var(--muted); font-size: 14px;
+               display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .layer { padding: 4px 11px; border-radius: 999px; border: 1px solid var(--border);
+           color: var(--faint); font-size: 12.5px; font-weight: 600; }
   .layer.hot { color: #04121a; background: var(--cyan); border-color: var(--cyan);
                box-shadow: 0 0 14px rgba(0,240,255,0.4); }
   .arrow { color: var(--faint); }
 
   .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
   @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
-  .step {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 10px 12px; font-size: 12.5px; color: var(--muted); line-height: 1.45;
-  }
-  .step b {
-    display: inline-block; width: 18px; height: 18px; border-radius: 50%;
-    background: rgba(0,240,255,0.12); color: var(--cyan); text-align: center;
-    line-height: 18px; font-size: 11px; margin-right: 6px;
-  }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+          padding: 10px 12px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+  .step b { display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+            background: rgba(0,240,255,0.12); color: var(--cyan); text-align: center;
+            line-height: 18px; font-size: 11px; margin-right: 6px; }
   .step em { color: var(--text); font-style: normal; font-weight: 600; }
 
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  .panel h3 { margin: 0 0 4px; font-size: 14px; }
+  .panel .sub { color: var(--faint); font-size: 12px; margin: 0 0 12px; line-height: 1.45; }
+  .row-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+
   .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  input[type=text] {
-    flex: 1; min-width: 150px; background: var(--panel-2); color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
-    font: inherit; font-size: 14px;
-  }
+  input[type=text] { flex: 1; min-width: 150px; background: var(--panel-2); color: var(--text);
+                     border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+                     font: inherit; font-size: 14px; }
   input[type=text]:focus { outline: none; border-color: var(--cyan); }
-  button, .dash {
-    border: 0; border-radius: 8px; padding: 10px 16px; font: inherit;
-    font-weight: 700; font-size: 14px; cursor: pointer; text-decoration: none;
-    display: inline-flex; align-items: center; gap: 6px;
-  }
+  button, .dash { border: 0; border-radius: 8px; padding: 9px 15px; font: inherit;
+                  font-weight: 700; font-size: 13.5px; cursor: pointer; text-decoration: none;
+                  display: inline-flex; align-items: center; gap: 6px; }
   #go { background: var(--cyan); color: #04121a; box-shadow: 0 0 16px rgba(0,240,255,0.35); }
-  #go:hover { box-shadow: 0 0 22px rgba(0,240,255,0.55); }
   #go:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   #break { background: transparent; color: var(--muted); border: 1px solid var(--border); }
-  #break:hover { color: var(--text); border-color: var(--faint); }
-  #break.on { background: rgba(255,0,85,0.14); color: var(--pink);
-              border-color: rgba(255,0,85,0.5); box-shadow: 0 0 16px rgba(255,0,85,0.25); }
+  #break.on { background: rgba(255,0,85,0.14); color: var(--pink); border-color: rgba(255,0,85,0.5); }
   .dash { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); margin-left: auto; }
   .dash:hover { border-color: var(--cyan); color: var(--cyan); }
+  .danger { background: rgba(255,0,85,0.16); color: var(--pink); border: 1px solid rgba(255,0,85,0.45); }
+  .ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .drill { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); }
+  .drill:hover { border-color: var(--cyan); color: var(--cyan); }
+  button:disabled { opacity: 0.45; cursor: default; }
 
   .verdict { margin: 16px 0; padding: 14px 16px; border-radius: 12px; font-size: 15px;
              font-weight: 600; border: 1px solid var(--border); background: var(--panel); }
@@ -78,19 +74,34 @@
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
   .card h2 { margin: 0 0 12px; font-size: 14px; }
   .card h2 small { color: var(--faint); font-weight: 500; margin-left: 6px; }
-
   .ladder { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
   .rung { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px;
-          padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border);
-          color: var(--faint); }
+          padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border); color: var(--faint); }
   .rung.active.live { color: #04121a; background: var(--green); border-color: var(--green); }
   .rung.active.cache, .rung.active.default { color: #1a1204; background: var(--amber); border-color: var(--amber); }
   .rung.active.message { color: #fff; background: var(--pink); border-color: var(--pink); }
-
   .headline { font-size: 18px; font-weight: 700; margin: 4px 0 10px; }
   .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--faint); font-size: 12px; }
   .meta b { color: var(--muted); font-weight: 600; }
   .why { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin-top: 10px; }
+
+  .breaker-chip { font-size: 12px; font-weight: 800; letter-spacing: 0.6px; padding: 5px 12px;
+                  border-radius: 999px; border: 1px solid var(--border); }
+  .breaker-chip.closed { color: var(--green); border-color: rgba(0,255,102,0.35); }
+  .breaker-chip.open { color: #fff; background: var(--pink); border-color: var(--pink); box-shadow: 0 0 14px rgba(255,0,85,0.4); }
+  .breaker-chip.half_open { color: #1a1204; background: var(--amber); border-color: var(--amber); }
+  .result-line { color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+
+  .drill-verdict { border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .drill-verdict.ok { border-color: rgba(0,255,102,0.35); }
+  .drill-verdict.bad { border-color: rgba(255,0,85,0.35); }
+  .drill-verdict b { font-size: 14px; }
+  .drill-verdict.ok b { color: var(--green); }
+  .drill-verdict.bad b { color: var(--pink); }
+  .flags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .flag { font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border); font-family: "Cascadia Code", monospace; }
+  .flag.ok { color: var(--green); border-color: rgba(0,255,102,0.3); }
+  .flag.bad { color: var(--pink); border-color: rgba(255,0,85,0.3); }
 
   .activity { margin-top: 18px; }
   .activity h2 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
@@ -110,20 +121,17 @@
       <h1>Demo App</h1>
       <div class="mechanism">
         <span>JIZO wraps every outgoing call with</span>
-        <span class="layer" id="l-timeout">Timeout</span>
-        <span class="arrow">→</span>
-        <span class="layer" id="l-retry">Retry</span>
-        <span class="arrow">→</span>
-        <span class="layer" id="l-breaker">Circuit breaker</span>
-        <span class="arrow">→</span>
+        <span class="layer" id="l-timeout">Timeout</span><span class="arrow">→</span>
+        <span class="layer" id="l-retry">Retry</span><span class="arrow">→</span>
+        <span class="layer" id="l-breaker">Circuit breaker</span><span class="arrow">→</span>
         <span class="layer" id="l-fallback">Fallback</span>
       </div>
     </header>
 
     <section class="steps">
       <div class="step"><b>1</b> Confirm a route. Both dependencies answer <em>live</em>.</div>
-      <div class="step"><b>2</b> Hit <em>Break the upstreams</em>, then confirm again.</div>
-      <div class="step"><b>3</b> The route still confirms from a fallback — and every attempt shows up below, straight from the database.</div>
+      <div class="step"><b>2</b> Hit <em>Break the upstreams</em> — retry, timeout and fallback absorb it.</div>
+      <div class="step"><b>3</b> Hammer it until the breaker opens, then run the <em>proof</em> drills below.</div>
     </section>
 
     <div class="panel">
@@ -142,12 +150,54 @@
       <h2>Live evidence <span>— every row is a real request the protector made, read from the database</span></h2>
       <div id="activity"><div class="empty">No requests yet.</div></div>
     </section>
+
+    <section class="grid2">
+      <div class="panel">
+        <h3>Circuit breaker</h3>
+        <p class="sub">Hammer the dependency with real failing calls until it opens, then watch it fast-fail and recover.</p>
+        <div class="row-controls">
+          <span class="breaker-chip closed" id="breakerChip">CLOSED</span>
+          <button id="hammer" class="danger" type="button">Hammer it</button>
+          <button id="recover" class="ghost" type="button">Recover</button>
+        </div>
+        <div class="result-line" id="breakerResult">Breaker CLOSED. Normal traffic.</div>
+      </div>
+
+      <div class="panel">
+        <h3>Proof — temporal fault injection</h3>
+        <p class="sub">Break the call at a known timing, then score whether the app handled it.</p>
+        <div class="row-controls">
+          <button class="drill" data-drill="post-effect" type="button">Post-effect</button>
+          <button class="drill" data-drill="k-of-n" type="button">k-of-n</button>
+          <button class="drill" data-drill="order-sensitive" type="button">Order-sensitive</button>
+        </div>
+        <div id="drillResult"><div class="empty">No drill run yet.</div></div>
+      </div>
+    </section>
   </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const TITLES = { weather: ["Weather", "api.open-meteo.com"], geocode: ["Geocode", "nominatim.openstreetmap.org"] };
 const LADDER = ["live", "cache", "default", "message"];
+
+const DRILLS = {
+  // These mirror `backend.faults.post_effect_drill` / `order_sensitive_drill`
+  // / `k_of_n_drill` exactly - target phase, guard phase and fault type all
+  // matter, and getting one wrong makes a correct run score FAIL.
+  "post-effect": (id) => ({ run_id: id, pattern: "post_effect", fault: "drop_response",
+    target: { api_key: "weather", phase: "recv", occurrence: 1 },
+    guard: { api_key: "weather", phase: "post_effect", min_count: 1 },
+    total_occurrences: 4, idempotent: false }),
+  "k-of-n": (id) => ({ run_id: id, pattern: "k_of_n", fault: "http_500",
+    target: { api_key: "weather", phase: "recv", occurrence: 3 },
+    guard: { api_key: "weather", phase: "send", min_count: 3 },
+    total_occurrences: 4, idempotent: true }),
+  "order-sensitive": (id) => ({ run_id: id, pattern: "order_sensitive", fault: "rival_response",
+    target: { api_key: "weather", phase: "recv", occurrence: 1 },
+    guard: { api_key: "weather", phase: "send", min_count: 1 },
+    total_occurrences: 4, idempotent: false }),
+};
 
 function headline(key, data) {
   if (data === null || data === undefined) return "no payload";
@@ -161,68 +211,52 @@ function headline(key, data) {
   }
   return "answered";
 }
-
 function ladder(rung) {
   return LADDER.map((r, i) =>
-    `${i ? '<span class="arrow">→</span>' : ""}` +
-    `<span class="rung ${r === rung ? "active " + r : ""}">${r}</span>`
+    `${i ? '<span class="arrow">→</span>' : ""}<span class="rung ${r === rung ? "active " + r : ""}">${r}</span>`
   ).join("");
 }
-
-function card(key, r) {
-  const [title, host] = TITLES[key];
-  return `
-    <div class="card">
-      <h2>${title}<small>${host}</small></h2>
-      <div class="ladder">${ladder(r.served_from)}</div>
-      <div class="headline">${headline(key, r.data)}</div>
-      <div class="meta">
-        <span><b>status</b> ${r.status_code ?? "—"}</span>
-        <span><b>attempts</b> ${r.attempts}</span>
-        <span><b>latency</b> ${Math.round(r.latency_ms)}ms</span>
-        <span><b>breaker</b> ${r.breaker_state || "—"}</span>
-      </div>
-      <div class="why">${explain(key, r)}</div>
-    </div>`;
-}
-
-function explain(key, r) {
-  const rung = r.served_from;
-  if (rung === "live" && r.attempts > 1)
-    return `Answered live after ${r.attempts} attempts — it retried through failures before the upstream recovered.`;
+function explain(rung, attempts) {
+  if (rung === "live" && attempts > 1) return `Answered live after ${attempts} attempts — it retried through failures before the upstream recovered.`;
   if (rung === "live") return "Answered live by the real API.";
   if (rung === "cache") return "The live API did not answer, so a cached answer was served — the customer still got a result.";
   if (rung === "default") return "The live API and cache were unavailable; the seeded default for this city was served instead of an error.";
   return "Nothing could be served. The caller gets a clear message, never a raw upstream error.";
 }
-
-function highlight(rows, breakerOpen) {
+function card(key, r) {
+  const [title, host] = TITLES[key];
+  return `<div class="card">
+    <h2>${title}<small>${host}</small></h2>
+    <div class="ladder">${ladder(r.served_from)}</div>
+    <div class="headline">${headline(key, r.data)}</div>
+    <div class="meta">
+      <span><b>status</b> ${r.status_code ?? "—"}</span>
+      <span><b>attempts</b> ${r.attempts}</span>
+      <span><b>latency</b> ${Math.round(r.latency_ms)}ms</span>
+      <span><b>breaker</b> ${r.breaker_state || "—"}</span>
+    </div>
+    <div class="why">${explain(r.served_from, r.attempts)}</div>
+  </div>`;
+}
+function highlight(rows) {
   const retried = rows.some((r) => (r.attempts || 0) > 1);
   const fellBack = rows.some((r) => r.served_from !== "live");
-  const tripped = breakerOpen || rows.some((r) => r.breaker_state === "OPEN");
+  const tripped = rows.some((r) => r.breaker_state === "OPEN");
   $("l-timeout").classList.toggle("hot", fellBack);
   $("l-retry").classList.toggle("hot", retried);
   $("l-breaker").classList.toggle("hot", tripped);
   $("l-fallback").classList.toggle("hot", fellBack);
 }
-
 function activityTable(rows) {
   if (!rows.length) return '<div class="empty">No requests yet.</div>';
   const body = rows.map((r) => {
-    const cls = r.servedFrom === "live" ? "ok"
-      : r.servedFrom === "none" ? "bad" : "fb";
-    return `<tr>
-      <td>${r.apiKey}</td><td>${r.phase}</td>
-      <td>${r.attempt ?? "—"}</td>
+    const cls = r.servedFrom === "live" ? "ok" : r.servedFrom === "none" ? "bad" : "fb";
+    return `<tr><td>${r.apiKey}</td><td>${r.phase}</td><td>${r.attempt ?? "—"}</td>
       <td>${r.status ?? "—"}</td>
       <td>${r.latencyMs !== null && r.latencyMs !== undefined ? Math.round(r.latencyMs) + "ms" : "—"}</td>
-      <td class="${cls}">${r.servedFrom}</td>
-      <td>${r.breakerState || "—"}</td>
-    </tr>`;
+      <td class="${cls}">${r.servedFrom}</td><td>${r.breakerState || "—"}</td></tr>`;
   }).join("");
-  return `<table>
-    <tr><th>api</th><th>phase</th><th>attempt</th><th>status</th><th>latency</th><th>served from</th><th>breaker</th></tr>
-    ${body}</table>`;
+  return `<table><tr><th>api</th><th>phase</th><th>attempt</th><th>status</th><th>latency</th><th>served from</th><th>breaker</th></tr>${body}</table>`;
 }
 
 async function confirm() {
@@ -236,32 +270,80 @@ async function confirm() {
     const body = await (await fetch("/route/plan?" + params, { method: "POST" })).json();
     const results = body.result;
     $("results").innerHTML = card("weather", results.weather) + card("geocode", results.geocode);
-
     const degraded = Object.values(results).some((r) => r.served_from !== "live");
-    $("verdict").innerHTML = `
-      <div class="verdict ${degraded ? "bad" : "ok"}">
-        ${degraded ? "⚠ " : "✓ "}${degraded
-          ? "Route confirmed, but a dependency was down. JIZO served a fallback — the customer never saw an error."
-          : "Route confirmed. Both dependencies answered live."}
-        <small>Route for “${body.address}” · trace <code>${body.trace_id}</code></small>
-      </div>`;
-
-    highlight(Object.values(results), false);
+    $("verdict").innerHTML = `<div class="verdict ${degraded ? "bad" : "ok"}">
+      ${degraded ? "⚠ " : "✓ "}${degraded
+        ? "Route confirmed, but a dependency was down. JIZO served a fallback — the customer never saw an error."
+        : "Route confirmed. Both dependencies answered live."}
+      <small>Route for “${body.address}” · trace <code>${body.trace_id}</code></small></div>`;
+    highlight(Object.values(results));
     const activity = await (await fetch("/demo/activity?trace_id=" + encodeURIComponent(body.trace_id))).json();
     $("activity").innerHTML = activityTable(activity.rows);
   } catch (err) {
     $("verdict").innerHTML = `<div class="verdict bad">Request failed: ${err}</div>`;
+  } finally { $("go").disabled = false; }
+}
+
+function chip(state) {
+  const el = $("breakerChip");
+  el.textContent = state;
+  el.className = "breaker-chip " + state.toLowerCase();
+}
+
+async function breaker(action) {
+  const button = action === "hammer" ? $("hammer") : $("recover");
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = action === "hammer" ? "Hammering…" : "Recovering…";
+  $("breakerResult").textContent = action === "hammer"
+    ? "Driving real failing calls until the breaker opens…"
+    : "Waiting out the sleep window, then probing…";
+  try {
+    const r = await fetch("/demo/breaker?action=" + action + "&api_key=weather", { method: "POST" });
+    const b = await r.json();
+    chip(b.state);
+    $("breakerResult").textContent =
+      `${b.steps} real calls · window ${b.windowSize}/100 · error ${b.errorPct}% · ${b.transitionsWritten} transition(s) written to the DB. ` +
+      (b.state === "OPEN" ? "Now every call fast-fails — no upstream contact."
+        : b.state === "CLOSED" ? "Recovered: probes succeeded, breaker closed."
+        : "Half-open: probing with a limited budget.");
+  } catch (err) {
+    $("breakerResult").textContent = "Failed: " + err;
   } finally {
-    $("go").disabled = false;
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+async function drill(name) {
+  const result = $("drillResult");
+  result.innerHTML = '<div class="empty">Running…</div>';
+  try {
+    const runId = `demo-${name}-${Date.now()}`;
+    const r = await fetch("/fi/run", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify(DRILLS[name](runId)),
+    });
+    const v = await r.json();
+    if (!r.ok) { result.innerHTML = `<div class="drill-verdict bad"><b>ERROR</b> ${v.detail || r.status}</div>`; return; }
+    const flag = (label, ok) => `<span class="flag ${ok ? "ok" : "bad"}">${label} ${ok ? "✓" : "✗"}</span>`;
+    result.innerHTML = `<div class="drill-verdict ${v.ts ? "ok" : "bad"}">
+      <b>${v.ts ? "PASS" : "FAIL"}</b> · ${v.pattern.replace(/_/g, " ")}
+      <div class="flags">
+        ${flag("CW", v.cw)}${flag("PS", v.ps)}${flag("Prem", !v.prem)}${flag("Miss", !v.miss)}${flag("Mult", !v.mult)}
+      </div>
+      <div class="why">${v.explain}</div></div>`;
+  } catch (err) {
+    result.innerHTML = `<div class="drill-verdict bad"><b>ERROR</b> ${err}</div>`;
   }
 }
 
 $("go").addEventListener("click", confirm);
-$("break").addEventListener("click", () => {
-  $("break").classList.toggle("on");
-  confirm();
-});
+$("break").addEventListener("click", () => { $("break").classList.toggle("on"); confirm(); });
 $("address").addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
+$("hammer").addEventListener("click", () => breaker("hammer"));
+$("recover").addEventListener("click", () => breaker("recover"));
+document.querySelectorAll(".drill").forEach((b) => b.addEventListener("click", () => drill(b.dataset.drill)));
 confirm();
 </script>
 </body>

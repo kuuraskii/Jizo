@@ -77,6 +77,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -110,7 +111,14 @@ from .health import check_health, check_ready
 from .logging_conf import configure_logging, get_logger
 from .models import FiRunRow, RequestLogRow
 from .proxy import FallbackLadder, resilient_get
-from .schemas import DrillSpec, EvidenceEvent, FiRun, ScoreResult, ServedFrom
+from .schemas import (
+    BreakerState,
+    DrillSpec,
+    EvidenceEvent,
+    FiRun,
+    ScoreResult,
+    ServedFrom,
+)
 from .scoring import score_run
 from .secrets import get_config
 from .store import (
@@ -705,6 +713,73 @@ async def demo_activity(
                 }
                 for r in rows
             ]
+        }
+    )
+
+
+@app.post("/demo/breaker")
+async def demo_breaker(
+    request: Request,
+    action: str = Query("hammer", description="hammer | recover"),
+    api_key: str = Query("weather"),
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    """Drive one breaker OPEN (hammer) or back to CLOSED (recover).
+
+    Every step is a real ``resilient_get`` call - nothing calls
+    ``record_failure`` by hand. Hammer points at a dead port with
+    ``max_attempts=1`` so the failures are genuine and fast (no retry
+    backoff); recover probes the real upstream until the breaker closes.
+    """
+    if action not in ("hammer", "recover"):
+        raise HTTPException(status_code=422,
+                            detail="action must be 'hammer' or 'recover'")
+
+    state = state_of(request)
+    policy = load_policy(api_key)
+    breaker = state.registry.get(policy)
+    before = len(breaker.transitions())
+    fast = policy.model_copy(update={"max_attempts": 1})
+
+    if action == "hammer":
+        calls = 0
+        while breaker.effective_state is not BreakerState.OPEN and calls < 200:
+            # A 0.15s per-attempt timeout: the point is the *failure*, and the
+            # demo cannot wait 2s per call for the OS to give up on a dead
+            # port. Still a real call through the real protector.
+            await resilient_get(api_key, "http://127.0.0.1:9/hammer",
+                                policy=fast, breaker=breaker,
+                                client=state.http(), timeout_s=0.15)
+            calls += 1
+        steps = calls
+    else:
+        # Recovery needs the sleep window to elapse before the breaker will
+        # arm a probe. Refused calls return instantly, so this waits with a
+        # short sleep rather than spinning, and the step cap is generous
+        # enough to cover the window plus the probe budget.
+        url = _plan_shape("Delhi")[api_key]
+        deadline = time.monotonic() + policy.breaker_sleep_s + 25
+        steps = 0
+        while (breaker.effective_state is not BreakerState.CLOSED
+               and steps < 250 and time.monotonic() < deadline):
+            await resilient_get(api_key, url, policy=fast, breaker=breaker,
+                                client=state.http())
+            steps += 1
+            if breaker.effective_state is not BreakerState.CLOSED:
+                await asyncio.sleep(0.15)
+
+    written = await _persist_breaker_transitions(
+        session, breaker, api_key, before
+    )
+    return JSONResponse(
+        {
+            "apiKey": api_key,
+            "action": action,
+            "state": breaker.state.value,
+            "steps": steps,
+            "transitionsWritten": written,
+            "windowSize": breaker.window_size(),
+            "errorPct": round(breaker.error_pct(), 1),
         }
     )
 

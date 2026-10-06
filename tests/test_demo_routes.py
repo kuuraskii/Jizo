@@ -62,3 +62,11 @@ def test_simulate_points_the_upstreams_at_a_dead_port():
     assert real["weather"].startswith("https://api.open-meteo.com")
     assert broken["weather"].startswith("http://127.0.0.1:9")
     assert broken["geocode"].startswith("http://127.0.0.1:9")
+
+
+def test_breaker_control_rejects_an_unknown_action():
+    """A bad action is a 422, not a silent no-op."""
+    with TestClient(app) as client:
+        response = client.post("/demo/breaker", params={"action": "nope"})
+
+    assert response.status_code == 422
