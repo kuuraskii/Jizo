@@ -17,4 +17,5 @@ paths = [
   '''\.secrets\.baseline$''',
   '''frontend/_dashboard\.html$''',
   '''frontend/_preview\.html$''',
+  '''\.venv''',
 ]

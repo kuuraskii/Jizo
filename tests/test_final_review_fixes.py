@@ -275,7 +275,7 @@ def test_breaker_flips_are_persisted_to_the_table():
     from tests.test_data import _database_or_skip
     _database_or_skip()
 
-    api_key = "p6-probe-transition"
+    api_key = "probe"
     policy = ApiPolicy(api_key=api_key, base_url="https://x.test",
                        breaker_min_volume=2, breaker_error_threshold=0.25)
 
