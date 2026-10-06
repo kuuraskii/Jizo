@@ -40,11 +40,13 @@ read off one table:
 
 ## Rules borrowed from the scorer, so the two cannot disagree
 
-* **A call is ``(api_key, call_index)``, never ``call_index`` alone.** The bus
-  keys counters on ``(trace_id, api_key)``, so in a ``/route/plan`` fan-out
-  weather's call 1 and geocode's call 1 are different calls. The scorer never
-  has to think about this because it scopes to one API first; this module is
-  handed both arms and may span several APIs, so it must.
+* **A call is ``(trace_id, api_key, call_index)``, never ``call_index``
+  alone.** The bus keys counters on ``(trace_id, api_key)``, so in a
+  ``/route/plan`` fan-out weather's call 1 and geocode's call 1 are different
+  calls - and weather call 1 in a *second* trace is a different call again.
+  The scorer never has to think about this because it scopes to one API first;
+  this module is handed both arms and may span several APIs *and* several
+  traces, so it must.
 * **The LAST response row of a call decides.** Same rule as the scorer's
   ``_served_live``: a call that served live and then died on that same call did
   not finish healthy, and an ``any()`` match would call it healthy anyway.
@@ -95,9 +97,11 @@ def resolve_mode(raw: Optional[str]) -> str:
 
     Pure. ``main.py`` passes the query parameter straight in; this decides.
 
-    ``None`` or empty becomes :data:`DEFAULT_MODE`. Anything else must be one
-    of the two arms exactly - not a case-folded near-miss - so a typo fails
-    loudly at the door instead of quietly running traffic down an unintended
+    ``None``, empty or all-whitespace input becomes :data:`DEFAULT_MODE`.
+    Otherwise the value is stripped and case-folded, so ``"  Control "`` is
+    accepted as ``"control"``. Anything that is not one of the two arms *after*
+    that normalisation (``"protected"``, ``"experimentation"``, a typo) fails
+    loudly at the door rather than silently running traffic down an unintended
     path.
 
     Raises:
@@ -205,9 +209,10 @@ class CompareResult:
     """The whole report: both arms plus the delta between them.
 
     P5's comparator panel renders this; ``main.py`` serves it. The 4-axis
-    numbers are deliberately absent - they belong to ``backend/axes.py``, and
-    they are computed from these raw per-side metrics rather than replacing
-    them.
+    numbers are deliberately absent - they belong to ``backend/axes.py``. Note
+    this report does NOT hand them over on its own: it keeps per-arm *counts*,
+    not the ``ScoreResult`` objects an ``AxisRun`` needs, so a caller that wants
+    the radar must build its own ``AxisRun`` list (see ``main.py``).
     """
 
     control: SideMetrics
@@ -241,48 +246,56 @@ def _rate(numerator: int, denominator: int) -> float:
     return numerator / denominator
 
 
+#: The identity of one call. The bus counts calls per ``(trace_id, api_key)``,
+#: so a call is only uniquely named by all three fields. Keying on fewer lets
+#: unrelated calls overwrite (and, worse, merge) each other.
+CallKey = tuple[str, str, int]
+
+
 def _final_responses(
     events: Iterable[EvidenceEvent],
-) -> dict[tuple[str, int], EvidenceEvent]:
-    """The LAST response-phase row of each call, keyed by ``(api, call)``.
+) -> dict[CallKey, EvidenceEvent]:
+    """The LAST response-phase row of each call, keyed by ``(trace, api, call)``.
 
     "Last" is what makes the rule match the scorer's: a call that served the
     customer and then failed again on the same call did not withstand anything,
     so its last row is the verdict for that call.
 
-    Keyed on ``(api_key, call_index)`` rather than ``call_index`` because the
-    bus counts calls per ``(trace_id, api_key)``. In a fan-out, weather call 1
-    and geocode call 1 are different calls and must not overwrite each other.
+    The key carries ``trace_id`` as well as ``(api_key, call_index)``: the bus
+    numbers calls per ``(trace_id, api_key)``, so ``t1/weather`` call 1 and
+    ``t2/weather`` call 1 are different calls - as are weather call 1 and
+    geocode call 1 in one fan-out. Keying on fewer fields let a second trace's
+    call 1 silently overwrite the first's.
     """
-    final: dict[tuple[str, int], EvidenceEvent] = {}
+    final: dict[CallKey, EvidenceEvent] = {}
     for event in events:
         if event.phase is not Phase.RECV:
             continue
-        final[(event.api_key, event.call_index)] = event
+        final[(event.trace_id, event.api_key, event.call_index)] = event
     return final
 
 
-def _call_keys(events: Iterable[EvidenceEvent]) -> set[tuple[str, int]]:
+def _call_keys(events: Iterable[EvidenceEvent]) -> set[CallKey]:
     """Every call the evidence mentions, response row or not.
 
     Derived from all rows rather than only response rows so that a call which
     was sent and never answered still appears in the denominator.
     """
-    return {(e.api_key, e.call_index) for e in events}
+    return {(e.trace_id, e.api_key, e.call_index) for e in events}
 
 
-def _duplicated_calls(events: Iterable[EvidenceEvent]) -> set[tuple[str, int]]:
+def _duplicated_calls(events: Iterable[EvidenceEvent]) -> set[CallKey]:
     """Calls that applied their side effect more than once.
 
-    Counted per ``(api_key, call_index)``, which is exactly P1's rule, so the
-    comparator and the grader always agree. See the module docstring for the
-    B1 caveat: a retried double charge lands on two call numbers and is
+    Counted per ``(trace_id, api_key, call_index)``, which is exactly P1's rule,
+    so the comparator and the grader always agree. See the module docstring for
+    the B1 caveat: a retried double charge lands on two call numbers and is
     invisible to this - and to P1.
     """
-    counts: dict[tuple[str, int], int] = {}
+    counts: dict[CallKey, int] = {}
     for event in events:
         if event.effect_applied:
-            key = (event.api_key, event.call_index)
+            key = (event.trace_id, event.api_key, event.call_index)
             counts[key] = counts.get(key, 0) + 1
     return {key for key, count in counts.items() if count > 1}
 
@@ -301,7 +314,7 @@ def side_metrics(
 
     Definitions, so the dashboard and the rubric cannot disagree:
 
-    * **calls** - distinct ``(api_key, call_index)`` in the evidence.
+    * **calls** - distinct ``(trace_id, api_key, call_index)`` in the evidence.
     * **success** - calls whose LAST response row served something usable,
       i.e. ``served_from in SERVABLE_SOURCES`` (``LIVE``, ``CACHE``,
       ``DEFAULT``, ``MESSAGE``). Imported from the scorer, not restated.
