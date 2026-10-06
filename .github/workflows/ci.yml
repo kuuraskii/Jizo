@@ -65,20 +65,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: detect-secrets (against the reviewed baseline)
-        run: |
-          pip install detect-secrets==1.5.0
-          detect-secrets scan --baseline .secrets.baseline
+      # Runs the same hooks a developer runs locally, so "green in CI" and
+      # "green before commit" cannot drift. detect-secrets checks against the
+      # reviewed .secrets.baseline; gitleaks uses .gitleaks.toml (which
+      # allowlists that baseline, whose hashes it would otherwise flag).
+      - name: Install pre-commit
+        run: pip install pre-commit==4.6.2
+
+      - name: detect-secrets (reviewed baseline)
+        run: pre-commit run detect-secrets --all-files
 
       - name: gitleaks
-        run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
-            | tar -xz gitleaks
-          ./gitleaks detect --source . --no-banner --redact --config .gitleaks.toml
+        run: pre-commit run gitleaks --all-files
