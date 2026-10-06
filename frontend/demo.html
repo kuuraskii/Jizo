@@ -6,164 +6,216 @@
 <title>JIZO · Route Confirm</title>
 <style>
   :root {
-    --bg: #0a0a0c;
-    --panel: #14161b;
-    --border: #262b36;
-    --text: #e2e8f0;
-    --muted: #94a3b8;
-    --faint: #64748b;
-    --cyan: #00f0ff;
-    --green: #00ff66;
-    --amber: #ffb800;
-    --pink: #ff0055;
+    --bg: #0a0a0c; --panel: #14161b; --panel-2: #0d0f13;
+    --border: #262b36; --text: #e2e8f0; --muted: #94a3b8; --faint: #64748b;
+    --cyan: #00f0ff; --green: #00ff66; --amber: #ffb800; --pink: #ff0055;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
     font-family: "Segoe UI", Inter, system-ui, sans-serif;
-    display: flex; justify-content: center; padding: 48px 20px;
+    display: flex; justify-content: center; padding: 40px 20px;
   }
-  .wrap { width: 100%; max-width: 780px; }
-  header { margin-bottom: 24px; }
-  h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.2px; }
-  h1 span { color: var(--cyan); }
-  .sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .wrap { width: 100%; max-width: 900px; }
 
-  .panel {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 18px;
+  header { margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 24px; font-weight: 700; }
+  h1 span { color: var(--cyan); }
+  .lede { color: var(--muted); font-size: 14px; margin: 8px 0 0; line-height: 1.5; max-width: 62ch; }
+  .lede b { color: var(--text); }
+
+  /* presenter steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+  @media (max-width: 700px) { .steps { grid-template-columns: 1fr; } }
+  .step {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 12.5px; color: var(--muted); line-height: 1.45;
   }
+  .step b {
+    display: inline-block; width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(0,240,255,0.12); color: var(--cyan); text-align: center;
+    line-height: 18px; font-size: 11px; margin-right: 6px;
+  }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
   .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   input[type=text] {
-    flex: 1; min-width: 180px; background: #0d0f13; color: var(--text);
-    border: 1px solid var(--border); border-radius: 8px;
-    padding: 10px 12px; font: inherit; font-size: 14px;
+    flex: 1; min-width: 160px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    font: inherit; font-size: 14px;
   }
   input[type=text]:focus { outline: none; border-color: var(--cyan); }
-  label.check { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
   button {
-    background: var(--cyan); color: #04121a; border: 0; border-radius: 8px;
-    padding: 10px 18px; font: inherit; font-weight: 700; font-size: 14px;
-    cursor: pointer; box-shadow: 0 0 16px rgba(0, 240, 255, 0.35);
+    border: 0; border-radius: 8px; padding: 10px 18px; font: inherit;
+    font-weight: 700; font-size: 14px; cursor: pointer;
   }
-  button:hover { box-shadow: 0 0 22px rgba(0, 240, 255, 0.55); }
-  button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+  #go { background: var(--cyan); color: #04121a; box-shadow: 0 0 16px rgba(0,240,255,0.35); }
+  #go:hover { box-shadow: 0 0 22px rgba(0,240,255,0.55); }
+  #go:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+  #break {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+  }
+  #break:hover { color: var(--text); border-color: var(--faint); }
+  #break.on {
+    background: rgba(255,0,85,0.14); color: var(--pink);
+    border-color: rgba(255,0,85,0.5); box-shadow: 0 0 16px rgba(255,0,85,0.25);
+  }
 
-  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
-  @media (max-width: 640px) { .results { grid-template-columns: 1fr; } }
-  .card {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: 12px; padding: 16px;
+  .verdict {
+    margin: 16px 0; padding: 14px 16px; border-radius: 12px; font-size: 15px;
+    font-weight: 600; border: 1px solid var(--border); background: var(--panel);
   }
-  .card h2 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 600; }
-  .badge {
-    display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px;
-    border-radius: 999px; text-transform: uppercase; letter-spacing: 0.6px;
+  .verdict.ok { color: var(--green); border-color: rgba(0,255,102,0.3); }
+  .verdict.bad { color: var(--amber); border-color: rgba(255,184,0,0.3); }
+  .verdict small { display: block; color: var(--muted); font-weight: 400; font-size: 12.5px; margin-top: 4px; }
+
+  .results { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px) { .results { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card h2 { margin: 0 0 4px; font-size: 14px; }
+  .card .host { color: var(--faint); font-size: 11.5px; margin-bottom: 12px; }
+
+  /* the ladder */
+  .ladder { display: flex; align-items: center; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+  .rung {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px;
+    padding: 4px 9px; border-radius: 6px; border: 1px solid var(--border);
+    color: var(--faint); background: transparent;
   }
-  .badge.live    { color: #04121a; background: var(--green); }
-  .badge.cache   { color: #1a1204; background: var(--amber); }
-  .badge.default { color: #1a1204; background: var(--amber); }
-  .badge.message { color: #fff; background: var(--pink); }
-  .badge.none    { color: var(--text); background: #334155; }
-  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--faint); font-size: 12px; margin: 10px 0; }
+  .rung.active.live    { color: #04121a; background: var(--green); border-color: var(--green); }
+  .rung.active.cache   { color: #1a1204; background: var(--amber); border-color: var(--amber); }
+  .rung.active.default { color: #1a1204; background: var(--amber); border-color: var(--amber); }
+  .rung.active.message { color: #fff; background: var(--pink); border-color: var(--pink); }
+  .arrow { color: var(--faint); font-size: 11px; }
+
+  .headline { font-size: 18px; font-weight: 700; margin: 4px 0 10px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--faint); font-size: 12px; }
   .meta b { color: var(--muted); font-weight: 600; }
+  .why { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin-top: 10px; }
+  details { margin-top: 10px; }
+  summary { color: var(--faint); font-size: 11.5px; cursor: pointer; }
   pre {
-    margin: 0; background: #0d0f13; border: 1px solid var(--border);
-    border-radius: 8px; padding: 10px; font-size: 11.5px; color: #b6c2d2;
-    overflow: auto; max-height: 180px;
+    margin: 8px 0 0; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; font-size: 11px; color: #b6c2d2;
+    overflow: auto; max-height: 170px;
   }
-  .empty { color: var(--faint); font-size: 13px; }
   footer { color: var(--faint); font-size: 12px; margin-top: 18px; }
   code { color: var(--cyan); }
-  .banner {
-    margin-top: 14px; padding: 10px 14px; border-radius: 8px; font-size: 13px;
-    border: 1px solid var(--border);
-  }
-  .banner.ok { color: var(--green); border-color: rgba(0,255,102,0.3); }
-  .banner.bad { color: var(--amber); border-color: rgba(255,184,0,0.3); }
+  .empty { color: var(--faint); font-size: 13px; }
 </style>
 </head>
 <body>
   <div class="wrap">
     <header>
       <h1>JIZO <span>· Route Confirm</span></h1>
-      <div class="sub">
-        The crash-test dummy for the JIZO library. One route confirm fans out to
-        weather + geocode through <code>resilient_get()</code>.
-      </div>
+      <p class="lede">
+        A logistics dispatcher that confirms a delivery route using two APIs it
+        <b>does not own</b> — Open-Meteo and Nominatim. Every call goes through
+        the JIZO library. Watch what the customer sees when those APIs break.
+      </p>
     </header>
+
+    <section class="steps">
+      <div class="step"><b>1</b> Confirm a route. Both dependencies answer <b>live</b>.</div>
+      <div class="step"><b>2</b> Hit <b>Break the upstreams</b>, then confirm again.</div>
+      <div class="step"><b>3</b> The route still confirms — from a fallback. The customer never sees an error.</div>
+    </section>
 
     <div class="panel">
       <div class="controls">
         <input id="address" type="text" value="Delhi" placeholder="Delivery address">
-        <label class="check">
-          <input id="simulate" type="checkbox"> simulate outage
-        </label>
-        <button id="go">Confirm route</button>
+        <button id="break" type="button">☠ Break the upstreams</button>
+        <button id="go" type="button">Confirm route</button>
       </div>
-      <div id="banner"></div>
     </div>
 
+    <div id="verdict"></div>
     <div class="results" id="results">
-      <div class="empty">Enter an address and confirm a route.</div>
+      <div class="empty">Confirming…</div>
     </div>
 
-    <footer>Every answer is labelled with the fallback rung that served it.</footer>
+    <footer>
+      Each answer is labelled with the fallback rung that served it — the exact
+      value a judge can query later. Library call: <code>resilient_get()</code>.
+    </footer>
   </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const HOSTS = { weather: "api.open-meteo.com", geocode: "nominatim.openstreetmap.org" };
+const TITLES = { weather: "Weather", geocode: "Geocode" };
 
-function badge(rung) {
-  const cls = ["live", "cache", "default", "message"].includes(rung) ? rung : "none";
-  return `<span class="badge ${cls}">${rung}</span>`;
+function headline(key, data) {
+  if (data === null || data === undefined) return "no payload";
+  if (key === "weather") {
+    const t = (data.current && data.current.temperature_2m) ?? data.temperature_2m;
+    const w = (data.current && data.current.wind_speed_10m) ?? data.wind_speed_10m;
+    if (t !== undefined) return `${t}°C · wind ${w ?? "—"} km/h`;
+  } else {
+    const first = Array.isArray(data) ? data[0] : data;
+    if (first && first.display_name) return first.display_name;
+  }
+  return "answered";
+}
+
+function ladder(rungs) {
+  return rungs.map((r, i) =>
+    `${i ? '<span class="arrow">→</span>' : ""}` +
+    `<span class="rung ${r.active ? "active " + r.rung : ""}">${r.rung}</span>`
+  ).join("");
 }
 
 function card(key, r) {
-  const title = key === "weather" ? "Weather · Open-Meteo" : "Geocode · Nominatim";
-  const data = r.data === null || r.data === undefined
-    ? '<span class="empty">no payload</span>'
-    : `<pre>${JSON.stringify(r.data, null, 2)}</pre>`;
-  const breaker = r.breakerState || "—";
+  const payload = r.data === null || r.data === undefined
+    ? ""
+    : `<details><summary>raw payload</summary><pre>${JSON.stringify(r.data, null, 2)}</pre></details>`;
   return `
     <div class="card">
-      <h2>${title}</h2>
-      ${badge(r.servedFrom)}
+      <h2>${TITLES[key]}</h2>
+      <div class="host">${HOSTS[key]}</div>
+      <div class="ladder">${ladder(r.ladder)}</div>
+      <div class="headline">${headline(key, r.data)}</div>
       <div class="meta">
         <span><b>status</b> ${r.status ?? "—"}</span>
-        <span><b>latency</b> ${r.latencyMs}ms</span>
         <span><b>attempts</b> ${r.attempts}</span>
-        <span><b>breaker</b> ${breaker}</span>
+        <span><b>latency</b> ${r.latencyMs}ms</span>
+        <span><b>breaker</b> ${r.breakerState || "—"}</span>
       </div>
-      ${r.note ? `<div class="meta"><span>${r.note}</span></div>` : ""}
-      ${data}
+      <div class="why">${r.explanation}${r.note ? ` <span style="color:var(--faint)">(${r.note})</span>` : ""}</div>
+      ${payload}
     </div>`;
 }
 
 async function confirm() {
   const button = $("go");
   button.disabled = true;
-  $("banner").innerHTML = "";
   try {
     const params = new URLSearchParams({
       address: $("address").value || "Delhi",
-      simulate: $("simulate").checked ? "1" : "0",
+      simulate: $("break").classList.contains("on") ? "1" : "0",
     });
-    const response = await fetch("/api/confirm?" + params.toString());
-    const body = await response.json();
+    const body = await (await fetch("/api/confirm?" + params)).json();
     $("results").innerHTML =
       card("weather", body.results.weather) + card("geocode", body.results.geocode);
-    $("banner").innerHTML = body.degraded
-      ? `<div class="banner bad">Degraded — a fallback rung answered instead of the live upstream.</div>`
-      : `<div class="banner ok">Healthy — both calls served live.</div>`;
+    $("verdict").innerHTML = `
+      <div class="verdict ${body.degraded ? "bad" : "ok"}">
+        ${body.degraded ? "⚠ " : "✓ "}${body.verdict}
+        <small>Route for “${body.address}”. ${body.degraded
+          ? "A dependency is down; the fallback ladder absorbed it."
+          : "No fallback needed."}</small>
+      </div>`;
   } catch (err) {
-    $("banner").innerHTML = `<div class="banner bad">Request failed: ${err}</div>`;
+    $("verdict").innerHTML = `<div class="verdict bad">Request failed: ${err}</div>`;
   } finally {
     button.disabled = false;
   }
 }
 
 $("go").addEventListener("click", confirm);
+$("break").addEventListener("click", () => {
+  $("break").classList.toggle("on");
+  confirm();
+});
 $("address").addEventListener("keydown", (e) => { if (e.key === "Enter") confirm(); });
 confirm();
 </script>

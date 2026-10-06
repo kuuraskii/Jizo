@@ -54,6 +54,26 @@ _DEFAULTS: dict[str, dict] = {
 #: In-process value cache - the "cache" rung. Populated from live successes.
 _cache: dict[str, Any] = {}
 
+#: The fallback ladder, in order. The UI lights up the rung that answered.
+_LADDER = ("live", "cache", "default", "message")
+
+#: Plain-English, one line per rung - what a judge should take from it.
+_EXPLANATIONS = {
+    "live": "Answered live by the real API.",
+    "cache": (
+        "The live API did not answer, so a previously cached answer was "
+        "served - the customer still got a result."
+    ),
+    "default": (
+        "The live API and the cache were both unavailable, so the seeded "
+        "default for this city was served instead of an error."
+    ),
+    "message": (
+        "Nothing could be served. The caller gets a clear message, never a "
+        "raw upstream error body."
+    ),
+}
+
 app = FastAPI(title="JIZO Demo - Route Confirm")
 
 
@@ -87,10 +107,21 @@ def _urls(address: str, simulate: bool) -> dict[str, str]:
 
 
 def _shape(api_key: str, response) -> dict:
-    """One dependency's result, flattened for the UI."""
+    """One dependency's result, flattened for the UI - with the *why*.
+
+    A judge should be able to read one card and know which rung answered, how
+    hard the protector tried, and whether the customer saw an error.
+    """
+    rung = response.served_from.value
+    explanation = _EXPLANATIONS.get(rung, "")
+    if rung == "live" and response.attempts > 1:
+        explanation = (
+            f"Answered live after {response.attempts} attempts - it retried "
+            "through failures before the upstream recovered."
+        )
     return {
         "apiKey": api_key,
-        "servedFrom": response.served_from.value,
+        "servedFrom": rung,
         "status": response.status_code,
         "attempts": response.attempts,
         "latencyMs": round(response.latency_ms, 1),
@@ -99,6 +130,8 @@ def _shape(api_key: str, response) -> dict:
         ),
         "note": response.note,
         "data": response.data,
+        "explanation": explanation,
+        "ladder": [{"rung": r, "active": r == rung} for r in _LADDER],
     }
 
 
@@ -155,11 +188,18 @@ async def confirm(address: str = "Delhi", simulate: int = 0) -> JSONResponse:
         await client.aclose()
 
     degraded = any(r["servedFrom"] != "live" for r in results.values())
+    verdict = (
+        "Route confirmed, but a dependency was down. JIZO served a fallback, "
+        "so the customer never saw an error."
+        if degraded
+        else "Route confirmed. Both dependencies answered live."
+    )
     return JSONResponse(
         {
             "address": address,
             "simulated": bool(simulate),
             "degraded": degraded,
+            "verdict": verdict,
             "results": results,
             "libraryCall": "backend.proxy.resilient_get",
         }
