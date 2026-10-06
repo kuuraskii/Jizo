@@ -94,6 +94,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .breaker import BreakerRegistry
@@ -841,6 +842,23 @@ async def fi_run(
             ),
         )
 
+    # Column widths: fi_runs.run_id is VARCHAR(128); the *_api columns are
+    # VARCHAR(64). An over-long value used to reach asyncpg and raise
+    # "value too long", which FastAPI served as a 500 - a bad request must be
+    # a 422.
+    if len(spec.run_id) > 128:
+        raise HTTPException(
+            status_code=422,
+            detail=f"run_id exceeds 128 characters ({len(spec.run_id)})",
+        )
+    for label, value in (("target.api_key", spec.target.api_key),
+                         ("guard.api_key", spec.guard.api_key)):
+        if len(value) > 64:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label} exceeds 64 characters ({len(value)})",
+            )
+
     try:
         policy = load_policy(spec.target.api_key)
     except KeyError as exc:
@@ -869,7 +887,15 @@ async def fi_run(
     # earlier attempt that never finished; leave it for save_run to repair.
     if existing is None:
         session.add(spec_to_row(spec))
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Two requests raced the same run_id between our SELECT and INSERT.
+            # Roll back and treat it as the idempotent case rather than a 500.
+            await session.rollback()
+            stored = await load_run(session, spec.run_id)
+            if stored is not None:
+                return JSONResponse(_verdict_payload(stored, spec))
 
     fault_events: list[EvidenceEvent] = []
     attempts_for_events: list[int] = []

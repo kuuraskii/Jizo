@@ -108,6 +108,21 @@ def _rate_pct(numerator: int, denominator: int) -> Optional[float]:
     return round(100.0 * numerator / denominator, 1)
 
 
+def _finite(value: object) -> bool:
+    """A real number we can plot: not None, not NaN, not an infinity.
+
+    Postgres `double precision` accepts NaN and Infinity, and `json.dumps`
+    writes them literally - which is invalid JSON, so the browser's
+    `JSON.parse` failed and the ENTIRE board went blank. Filtering here keeps
+    one bad latency from taking down every panel.
+    """
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
 def _display_name(row: ApiRegistryRow) -> str:
     """A human label for an api_key, for the dropdown and the panels."""
     if row.api_key in _NAME_BY_KEY:
@@ -193,7 +208,7 @@ def _view_for(
         )
 
     # -- latency --------------------------------------------------------
-    latencies = [r.latency_ms for r in recv if r.latency_ms is not None]
+    latencies = [r.latency_ms for r in recv if _finite(r.latency_ms)]
     latency = {
         "mean": round(statistics.fmean(latencies), 2) if latencies else None,
         "p50": _percentile(latencies, 50),
@@ -209,7 +224,7 @@ def _view_for(
         {
             "label": f"call #{index}",
             "name": _display_name(row) if row else api_key,
-            "current": round(r.latency_ms, 2) if r.latency_ms is not None else None,
+            "current": round(r.latency_ms, 2) if _finite(r.latency_ms) else None,
             "status": r.status_code,
             "servedFrom": r.served_from,
         }
@@ -346,18 +361,29 @@ def _radar(my_runs: list[FiRunRow], logs: list[RequestLogRow]) -> list[dict]:
 
 
 def _radar_from(my_runs: list[FiRunRow], by_trace: dict[str, set[str]]) -> list[dict]:
-    from .schemas import Pattern, ScoreResult
+    from .schemas import EvidenceEvent, Pattern, ScoreResult
 
     runs: list[AxisRun] = []
     for r in my_runs:
         if r.ts is None:
             continue
+        try:
+            timeline = [
+                EvidenceEvent.model_validate(e) for e in (r.timeline or [])
+            ]
+            pattern = Pattern(r.pattern)
+        except Exception:  # noqa: BLE001 - one bad row must not wipe the radar
+            continue
         result = ScoreResult(
             run_id=r.run_id,
-            pattern=Pattern(r.pattern),
+            pattern=pattern,
             ts=r.ts, cw=bool(r.cw), ps=bool(r.ps),
             prem=bool(r.prem), miss=bool(r.miss), mult=bool(r.mult),
-            timeline=[], spec=None, notes=[],
+            # The STORED timeline, not []. `axes.detection` reads it to decide
+            # whether the breaker tripped; an empty timeline made every failing
+            # run a false negative, so detection always scored 0 - a false
+            # reliability claim, the exact thing the honesty rule forbids.
+            timeline=timeline, spec=None, notes=[],
         )
         runs.append(
             AxisRun(
@@ -397,7 +423,7 @@ def _latency_by_api(
             r.latency_ms
             for r in logs
             if r.api_key == api_key and r.phase == "recv"
-            and r.latency_ms is not None
+            and _finite(r.latency_ms)
         ]
         rows.append(
             {
@@ -436,8 +462,15 @@ async def snapshot(api_key: Optional[str] = None) -> dict[str, Any]:
             registry_rows = (
                 await session.execute(select(ApiRegistryRow))
             ).scalars().all()
-            logs = (await session.execute(select(RequestLogRow))).scalars().all()
-            runs = (await session.execute(select(FiRunRow))).scalars().all()
+            logs = (await session.execute(
+                # ORDER BY id: the comparator's rule is "the LAST response row
+                # of a call decides", which needs a stable order. Without it,
+                # the same rows could yield opposite verdicts between reads.
+                select(RequestLogRow).order_by(RequestLogRow.id)
+            )).scalars().all()
+            runs = (await session.execute(
+                select(FiRunRow).order_by(FiRunRow.created_at)
+            )).scalars().all()
 
             states: dict[str, str] = {}
             transitions = await session.execute(
@@ -460,11 +493,17 @@ async def snapshot(api_key: Optional[str] = None) -> dict[str, Any]:
             key: _view_for(key, registry, states, logs, runs)
             for key in registry
         }
-        if payload["focus"] is None and registry_rows:
-            payload["focus"] = registry_rows[0].api_key
+        # Coerce an unknown focus to a real one. `snapshot("typo")` used to keep
+        # `focus="typo"`, build no view for it, and blank the whole board while
+        # the dropdown still displayed a valid entry.
+        keys = [row.api_key for row in registry_rows]
+        if payload["focus"] not in keys:
+            payload["focus"] = keys[0] if keys else None
     except Exception as exc:  # noqa: BLE001 - a dashboard must never die
         # The message is scrubbed of any DSN by P3's own health helper, but a
-        # type name is enough here and cannot leak.
+        # type name is enough here and cannot leak. `ok` must be False too:
+        # leaving it True showed "db: ok" over an empty board.
+        payload["database"]["ok"] = False
         payload["database"]["error"] = type(exc).__name__
 
     return payload

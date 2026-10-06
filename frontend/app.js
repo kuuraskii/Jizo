@@ -218,7 +218,7 @@ function renderCharts(view) {
 function renderScorecards(view) {
   const body = $("scorecardsBody");
   clear(body);
-  if (!view || !view.scorecards.length) { body.appendChild(el("div", "empty", "no graded runs")); return; }
+  if (!view || !(view.scorecards || []).length) { body.appendChild(el("div", "empty", "no graded runs")); return; }
   view.scorecards.forEach((card) => {
     const row = el("div", "sc-row");
     row.appendChild(el("div", "sc-pattern", card.pattern.replace(/_/g, " ")));
@@ -265,15 +265,31 @@ function renderRadar(view) {
     spoke.setAttribute("stroke", "rgba(255,255,255,0.07)");
     svg.appendChild(spoke);
   });
-  const shape = document.createElementNS(ns, "polygon");
-  shape.setAttribute("points", axes.map((axis, i) => {
-    const value = axis.value === null || axis.value === undefined ? 0 : axis.value;
-    return point(i, radius * Math.max(0, Math.min(1, value / 100))).join(",");
-  }).join(" "));
-  shape.setAttribute("fill", "rgba(0,240,255,0.20)");
-  shape.setAttribute("stroke", COLORS.accent);
-  shape.setAttribute("stroke-width", "1.8");
-  svg.appendChild(shape);
+  // Only MEASURED axes get a vertex. Plotting a `null` axis at the centre
+  // would visually claim "0/100" for a metric nobody measured - the same
+  // false claim the data layer is careful to avoid.
+  const measured = axes
+    .map((axis, i) => ({ axis, i }))
+    .filter((a) => a.axis.value !== null && a.axis.value !== undefined);
+
+  if (measured.length >= 3) {
+    const shape = document.createElementNS(ns, "polygon");
+    shape.setAttribute("points", measured.map(({ axis, i }) =>
+      point(i, radius * Math.max(0, Math.min(1, axis.value / 100))).join(",")
+    ).join(" "));
+    shape.setAttribute("fill", "rgba(0,240,255,0.20)");
+    shape.setAttribute("stroke", COLORS.accent);
+    shape.setAttribute("stroke-width", "1.8");
+    svg.appendChild(shape);
+  } else {
+    measured.forEach(({ axis, i }) => {
+      const [x, y] = point(i, radius * Math.max(0, Math.min(1, axis.value / 100)));
+      const dot = document.createElementNS(ns, "circle");
+      dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+      dot.setAttribute("r", "3"); dot.setAttribute("fill", COLORS.accent);
+      svg.appendChild(dot);
+    });
+  }
   axes.forEach((axis, i) => {
     const [x, y] = point(i, radius + 18);
     const text = document.createElementNS(ns, "text");

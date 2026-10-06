@@ -439,7 +439,15 @@ def _score_order_sensitive(spec: DrillSpec, events: list[EvidenceEvent]) -> Dril
     rival_served = spec.fault is FaultType.RIVAL_RESPONSE and any(
         e.served_from is ServedFrom.LIVE for e in facts.faults
     )
-    committed_on_rival = _committed_after_rival(facts)
+    # Gated on RIVAL_RESPONSE for the same reason `rival_served` is: "committed
+    # on unverified data" only means something when the fault *is* a competing
+    # answer. With any other fault (DELAY, a 5xx) a commit after the fault is
+    # acting on the real, merely-delayed answer - punishing it failed a
+    # correct run.
+    committed_on_rival = (
+        spec.fault is FaultType.RIVAL_RESPONSE
+        and _committed_after_rival(facts)
+    )
     if rival_served:
         notes.append("the rival payload was served to the caller as live data")
     if committed_on_rival:
