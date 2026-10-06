@@ -26,7 +26,12 @@ Five rules this file must never break:
 
 2. **Every judge scopes to `spec.target.api_key` first.** A real request fans
    out to several upstream APIs. Without scoping, another API's legitimate
-   commit gets blamed on this drill.
+   commit gets blamed on this drill. There is exactly one deliberate
+   exception, the guard window: a guard names its OWN api and `FiRun` lets
+   that differ from the target, so that one check reads the whole trace -
+   the same rows the injector's `guard_satisfied` looks at. If the grader and
+   the injector disagree about whether the window ever opened, the headline
+   number cannot be defended on stage.
 
 3. **Judges read the spec, never a literal.** The fault type comes from
    `spec.fault`, the phase from `spec.target.phase`, the targeted call from
@@ -53,7 +58,9 @@ from .schemas import (
     DrillOutcome,
     DrillSpec,
     EvidenceEvent,
+    FaultType,
     Pattern,
+    Phase,
     ScoreResult,
     ServedFrom,
 )
@@ -94,7 +101,7 @@ class _Facts(NamedTuple):
     scoped: list[EvidenceEvent]        # rows for the drilled api only
     faults: list[EvidenceEvent]        # rows where the REQUESTED fault struck
     fired_on: list[int]                # which CALLS the fault landed on
-    answered: Optional[EvidenceEvent]  # a servable row at/after the faulted call
+    answered: Optional[EvidenceEvent]  # a servable row answering the faulted call
     dup_call: Optional[int]            # a call that applied its effect twice
     dup_count: int                     # how many times that call applied it
     leaked: bool                       # did a raw upstream error reach the caller?
@@ -103,21 +110,32 @@ class _Facts(NamedTuple):
     @classmethod
     def of(cls, spec: DrillSpec, events: Iterable[EvidenceEvent]) -> "_Facts":
         """Read one `(spec, events)` pair once, the way every judge reads it."""
-        scoped = _scope_to_api(events, spec)
+        # The trace is read twice over: once scoped to the drilled api, and
+        # once whole, because the guard window may live on a different
+        # dependency. Materialise it first - a generator would already be
+        # drained by the time the unscoped guard check ran.
+        timeline = list(events)
+        scoped = _scope_to_api(timeline, spec)
         faults = _fault_events(scoped, spec)
         fired_on = sorted({e.call_index for e in faults})
-        faulted_call = min(fired_on) if fired_on else 1
+        # CW asks about the call the drill PROMISED to break, so that is
+        # `spec.target.occurrence` and not the earliest call a fault happened
+        # to leak onto: leaking onto call 1 is a Prem finding, not a reason
+        # to grade call 1. The "which call fired" fallback this line used to
+        # carry was dead - `fired_on` is empty exactly when `faults` is, and
+        # `_answered` refuses outright when no fault fired at all.
+        faulted_call = spec.target.occurrence
         dup_call, dup_count = _duplicated_within_call(scoped)
 
         return cls(
             scoped=scoped,
             faults=faults,
             fired_on=fired_on,
-            answered=_answered(scoped, spec, faulted_call),
+            answered=_answered(scoped, spec, faulted_call, faults),
             dup_call=dup_call,
             dup_count=dup_count,
             leaked=any(e.leaked_raw_error for e in scoped),
-            window_note=_fired_before_window_note(scoped, spec, faults),
+            window_note=_fired_before_window_note(timeline, spec, faults),
         )
 
 
@@ -167,31 +185,73 @@ def _duplicated_within_call(
     return None, 0
 
 
-def _answered(
-    events: Iterable[EvidenceEvent], spec: DrillSpec, faulted_call: int
-) -> Optional[EvidenceEvent]:
-    """Was the customer served something, for the faulted call and after it?
+def _all_faults_off_phase(spec: DrillSpec, faults: list[EvidenceEvent]) -> bool:
+    """Did every fault land away from `spec.target.phase`?
 
-    CW is deliberately narrow. Two mistakes it must never make:
-
-    * accept a `served_from` that happens to be set on a SEND or POST_EFFECT
-      bookkeeping row - so only rows at `spec.target.phase` count;
-    * accept a value served BEFORE the fault - that says nothing about
-      whether the system withstood anything, so only rows at or after the
-      faulted call count.
+    When true there is no on-phase fault to anchor a timeline position, so
+    `_answered` has nothing meaningful to compare against and must report no
+    answer rather than pick an arbitrary anchor.
     """
+    return not any(e.phase == spec.target.phase for e in faults)
+
+
+def _answered(
+    events: list[EvidenceEvent],
+    spec: DrillSpec,
+    faulted_call: int,
+    faults: list[EvidenceEvent],
+) -> Optional[EvidenceEvent]:
+    """Was the customer served something *for the faulted call, after the fault*?
+
+    CW is deliberately narrow, because three separate mistakes used to slip
+    through here and each of them awarded a false PASS:
+
+    * a `served_from` set on a SEND or POST_EFFECT bookkeeping row must not
+      count, so only rows at `spec.target.phase` qualify;
+    * an answer served BEFORE the fault says nothing about withstanding it,
+      so the row must be at or after the first fault in timeline order (the
+      fault row itself may be the answer, e.g. a DELAY that still delivered);
+    * an answer on a *later, unrelated* call must not rescue the faulted one.
+      The fallback that saves a customer is written against the call that
+      failed, so the row must belong to `faulted_call` itself.
+
+    A later call in the trace is a different customer request.
+    """
+    positions = {id(e): i for i, e in enumerate(events)}
+    # With no fault fired there is nothing to withstand, so CW is false
+    # regardless of how healthy the trace looks. Without this guard the
+    # first servable row would make a faultless run look correct.
+    if not faults:
+        return None
+    # Anchor on the first ON-phase fault. With only off-phase faults there is
+    # no window to anchor to, so nothing here can prove the fault was
+    # withstood.
+    on_phase_faults = [e for e in faults if e.phase == spec.target.phase]
+    if not on_phase_faults:
+        return None
+    first_fault = min(positions[id(e)] for e in on_phase_faults)
+
+    # The call's LAST qualifying row decides. A call that served the customer
+    # and then failed again did not withstand the fault, and judging the
+    # healthy calls the same way (`_served_live`) keeps one rule for both.
+    best: Optional[EvidenceEvent] = None
     for event in events:
         if (
             event.phase == spec.target.phase
-            and event.call_index >= faulted_call
-            and _is_servable(event)
+            and event.call_index == faulted_call
+            and positions[id(event)] >= first_fault
         ):
-            return event
-    return None
+            if _is_servable(event):
+                best = event
+            else:
+                best = None  # a later failure on the same call cancels it
+    return best
 
 
 def _fired_before_window_note(
-    events: list[EvidenceEvent], spec: DrillSpec, faults: list[EvidenceEvent]
+    all_events: list[EvidenceEvent],
+    spec: DrillSpec,
+    faults: list[EvidenceEvent],
 ) -> Optional[str]:
     """Explain a premature fire, or return None if the timing was correct.
 
@@ -202,18 +262,38 @@ def _fired_before_window_note(
     If the guard's evidence never appeared at all, the window never opened, so
     any fault that fired was premature by definition - the injector ignored
     its own guard.
+
+    `all_events` is the UNSCOPED trace: the guard names its own `api_key`, and
+    `FiRun` lets that differ from `target.api_key`. Searching only the scoped
+    rows would intersect the two and could never find the window, so a
+    legitimate cross-API guard would score premature while the injector - which
+    looks at the right api - had already fired.
     """
     if not faults:
         return None
 
-    window = [e for e in events if e.phase == spec.guard.phase]
+    window = [
+        e
+        for e in all_events
+        if e.api_key == spec.guard.api_key and e.phase == spec.guard.phase
+    ]
+
+    # When the guard watches POST_EFFECT, the window means "the commit
+    # happened", so a row that recorded no effect must not open it - a drill
+    # that never created the outcome-uncertain window it claims to test would
+    # otherwise pass. Keyed on the guard's own phase rather than the pattern:
+    # a cross-API guard may legitimately watch SEND, where `effect_applied` is
+    # meaningless and filtering on it would make the window unreachable.
+    if spec.guard.phase is Phase.POST_EFFECT:
+        window = [e for e in window if e.effect_applied]
+
     if len(window) < spec.guard.min_count:
         return (
             f"fault fired although the guard window never opened "
             f"({spec.guard.describe()}); the drill proved nothing"
         )
 
-    positions = {id(e): i for i, e in enumerate(events)}
+    positions = {id(e): i for i, e in enumerate(all_events)}
     first_fault = min(positions[id(e)] for e in faults)
     first_window = min(positions[id(e)] for e in window)
     if first_fault < first_window:
@@ -222,16 +302,6 @@ def _fired_before_window_note(
             f"evidence at {first_window} ({spec.guard.describe()})"
         )
     return None
-
-
-def _fired_on_wrong_occurrence(facts: _Facts, spec: DrillSpec) -> bool:
-    """Did the fault leak onto any call other than the targeted one?
-
-    This is what makes a precise injector distinguishable from a blunt one: the
-    drill must hit call k and nothing else.
-    """
-    target = spec.target.occurrence
-    return any(call_index != target for call_index in facts.fired_on)
 
 
 def _missed_note(facts: _Facts, spec: DrillSpec) -> Optional[str]:
@@ -263,6 +333,28 @@ def _premature_notes(facts: _Facts, spec: DrillSpec) -> list[str]:
             f"fault leaked onto call(s) {wrong}; the drill targeted call "
             f"{spec.target.occurrence}"
         )
+
+    # A fault that only ever landed off-phase never struck the targeted
+    # window. If an on-phase fault also landed on that call, the window WAS
+    # struck and an extra tagged row is not itself a failure.
+    off_phase = [e for e in facts.faults if e.phase != spec.target.phase]
+    if off_phase:
+        on_phase_calls = {
+            e.call_index for e in facts.faults if e.phase == spec.target.phase
+        }
+        stranded = sorted(
+            {e.call_index for e in off_phase if e.call_index not in on_phase_calls}
+        )
+        if stranded:
+            phases = sorted(
+                {e.phase.value for e in off_phase if e.call_index in stranded}
+            )
+            notes.append(
+                f"fault landed on call(s) {stranded} at phase(s) {phases} "
+                f"instead of '{spec.target.phase.value}'; the targeted window "
+                "was never struck there"
+            )
+
     if facts.window_note:
         notes.append(facts.window_note)
     return notes
@@ -340,7 +432,13 @@ def _score_order_sensitive(spec: DrillSpec, events: list[EvidenceEvent]) -> Dril
     early_notes = _premature_notes(facts, spec)
     notes = list(early_notes)
 
-    rival_served = any(e.served_from is ServedFrom.LIVE for e in facts.faults)
+    # "The rival payload reached the caller" only means something when the
+    # fault actually IS a competing answer. With any other fault on this
+    # pattern (legal, and required so judges read the spec), a live row is
+    # just the normal response.
+    rival_served = spec.fault is FaultType.RIVAL_RESPONSE and any(
+        e.served_from is ServedFrom.LIVE for e in facts.faults
+    )
     committed_on_rival = _committed_after_rival(facts)
     if rival_served:
         notes.append("the rival payload was served to the caller as live data")
@@ -388,18 +486,23 @@ def _score_order_sensitive(spec: DrillSpec, events: list[EvidenceEvent]) -> Dril
 
 
 def _committed_after_rival(facts: _Facts) -> bool:
-    """Did anything commit once the rival answer had already arrived?
+    """Did the SAME call commit after the rival answer arrived?
 
-    Only effects positioned AFTER the earliest rival fault row count. A commit
-    that happened earlier in the trace belongs to an earlier call and says
-    nothing about whether the rival was trusted.
+    Bounded by the rival's call, not by the whole timeline. A commit on a
+    later call is the system legitimately acting on fresh real data, and
+    punishing that fails a correct run. Only a commit on the rival's own call
+    can mean the stale answer was trusted.
     """
     if not facts.faults:
         return False
+    rival_call = min(e.call_index for e in facts.faults)
     positions = {id(e): i for i, e in enumerate(facts.scoped)}
     first_fault = min(positions[id(e)] for e in facts.faults)
     return any(
-        e.effect_applied and positions[id(e)] > first_fault for e in facts.scoped
+        e.effect_applied
+        and e.call_index == rival_call
+        and positions[id(e)] > first_fault
+        for e in facts.scoped
     )
 
 
@@ -413,7 +516,8 @@ def _score_k_of_n(spec: DrillSpec, events: list[EvidenceEvent]) -> DrillOutcome:
     Premature here means: the fault leaked onto a call other than k.
     """
     facts = _Facts.of(spec, events)
-    notes = _premature_notes(facts, spec)
+    early_notes = _premature_notes(facts, spec)
+    notes = list(early_notes)
 
     missed_note = _missed_note(facts, spec)
     if missed_note:
@@ -423,8 +527,9 @@ def _score_k_of_n(spec: DrillSpec, events: list[EvidenceEvent]) -> DrillOutcome:
                  if not _served_live(facts, spec, call_index)]
     if unhealthy:
         notes.append(
-            f"healthy call(s) {unhealthy} did not serve live data: the failure "
-            "spread past the targeted call"
+            f"expected healthy call(s) {unhealthy} did not end with live data: "
+            "the failure spread past the targeted call, or the call never "
+            f"completed (the drill promised {spec.total_occurrences} calls)"
         )
 
     if facts.dup_call is not None:
@@ -436,7 +541,7 @@ def _score_k_of_n(spec: DrillSpec, events: list[EvidenceEvent]) -> DrillOutcome:
         notes.append("a raw upstream error body was passed to the caller")
     if facts.answered is not None:
         notes.append(
-            f"the faulted call was served from "
+            f"the faulted call {facts.answered.call_index} was served from "
             f"'{facts.answered.served_from.value}'"
         )
     else:
@@ -445,7 +550,7 @@ def _score_k_of_n(spec: DrillSpec, events: list[EvidenceEvent]) -> DrillOutcome:
     return DrillOutcome(
         correct_withstand=facts.answered is not None and not unhealthy,
         policy_success=not facts.leaked and facts.dup_call is None,
-        premature=bool(_premature_notes(facts, spec)),
+        premature=bool(early_notes),
         missed=missed_note is not None,
         duplicate=facts.dup_call is not None,
         notes=notes,
@@ -453,30 +558,38 @@ def _score_k_of_n(spec: DrillSpec, events: list[EvidenceEvent]) -> DrillOutcome:
 
 
 def _healthy_calls(facts: _Facts, spec: DrillSpec) -> list[int]:
-    """The calls that were supposed to succeed: every observed call except k.
+    """The calls that were supposed to succeed: calls 1..n except k.
 
-    Only calls that actually appear in the trace are expected - a call that was
-    never made cannot have degraded. When `n=1`, this is empty and CW rests on
-    the faulted call alone (see edgecases S-12).
+    `spec.total_occurrences` is the promise the drill makes, so it is read
+    here. Using only observed calls let a truncated trace pass: if the
+    protection layer bailed early and the last calls never happened, nothing
+    was degraded so nothing was penalised. A promised call that never arrived
+    is itself the failure.
+
+    When `n == 1` this is empty and CW rests on the faulted call alone
+    (see edgecases S-12).
     """
-    observed = {e.call_index for e in facts.scoped}
-    return sorted(c for c in observed if c != spec.target.occurrence)
+    return [c for c in range(1, spec.total_occurrences + 1)
+            if c != spec.target.occurrence]
 
 
 def _served_live(facts: _Facts, spec: DrillSpec, call_index: int) -> bool:
-    """Did this healthy call answer with fresh, unfaulted data?
+    """Did this healthy call end with fresh, unfaulted data?
 
-    Requires a row at the drill's response phase, carrying no fault, that
-    served LIVE. A fallback on a call that should have been healthy is a
-    failure, not a save.
+    Requires the call's LAST response-phase row to carry no fault and to have
+    served LIVE. Checking the last row matters: a call that served live and
+    then died on the same call is not healthy, and an `any()` match would
+    call it healthy anyway.
     """
-    return any(
-        e.call_index == call_index
-        and e.phase == spec.target.phase
-        and e.fault is None
-        and e.served_from is ServedFrom.LIVE
+    rows = [
+        e
         for e in facts.scoped
-    )
+        if e.call_index == call_index and e.phase == spec.target.phase
+    ]
+    if not rows:
+        return False
+    final = rows[-1]
+    return final.fault is None and final.served_from is ServedFrom.LIVE
 
 
 # ---------------------------------------------------------------------------
@@ -541,3 +654,117 @@ def score_run(spec: DrillSpec, events: list[EvidenceEvent]) -> ScoreResult:
         spec=spec,
         notes=list(outcome.notes),
     )
+
+
+# ===========================================================================
+# OPEN CONTRACT QUESTIONS - DOCUMENTATION ONLY
+#
+# Nothing below this line is code. The three questions below describe
+# behaviour this module gets WRONG, or cannot express at all, and none of
+# them has been decided. They are written down here so nobody "fixes" them
+# by accident, and so the next person to hit one of these traces starts
+# from a written question instead of a bug report.
+#
+# Each question records: what we are asking, why it matters, the concrete
+# trace that exposes it, and who has to decide. The matching tests in
+# tests/test_scoring.py (section `test_open_contract_questions`) pin today's
+# behaviour and are marked provisional. Do NOT read them as the intended
+# verdict.
+# ===========================================================================
+
+
+# --- B1: is a retry a new call, or a second attempt on the same call? -----
+#
+# QUESTION
+#   When P2's proxy logs a retry, should that retry be a new `call_index`,
+#   or the same call carrying a second attempt row?
+#
+# WHY IT MATTERS
+#   `_duplicated_within_call` counts applied effects per `call_index`, and
+#   `EvidenceBus.record` advances `call_index` on every SEND. A retry is
+#   therefore a new call by construction, so the side effect of a retried
+#   non-idempotent operation lands on two different call_index values and
+#   Mult can never see it. The one flag that exists to catch the double
+#   charge is structurally blind to the case it was written for.
+#
+# THE FAILING TRACE (post_effect_drill(k=1, n=1, idempotent=False))
+#     SEND                                       -> call 1
+#     POST_EFFECT effect_applied=True            -> call 1
+#     RECV fault=DROP_RESPONSE served_from=NONE  -> call 1
+#     RECV served_from=CACHE                      -> call 1   (customer saved)
+#     SEND                                       -> call 2   <- the retry
+#     POST_EFFECT effect_applied=True            -> call 2   <- work done twice
+#     RECV served_from=LIVE                      -> call 2
+#   Scores TS=True, mult=False today. The customer was charged twice and the
+#   run is a PASS, because one effect per call is indistinguishable from
+#   correct behaviour.
+#
+# WHO MUST DECIDE
+#   P2's proxy owner (they write the evidence rows) together with P1's
+#   scorer owner. Either P2 logs a retry as the same call carrying a second
+#   attempt row, or the shared schema grows an explicit field - an attempt
+#   number, or a stable operation id - that the scorer can group on. The
+#   grader cannot decide this on its own: it has nothing in the trace that
+#   links the two attempts, and guessing is worse than the current silence.
+
+
+# --- B2: is `total_occurrences` a promise, or a label? --------------------
+#
+# QUESTION
+#   Is `spec.total_occurrences` a promise the grader must enforce in all
+#   three patterns, or just a label describing the drill's nominal size?
+#
+# WHY IT MATTERS
+#   `total_occurrences` is read in exactly one place, `_healthy_calls`, and
+#   only the k-of-n judge calls that. `_score_post_effect` and
+#   `_score_order_sensitive` never look at it. A drill that promised four
+#   calls, ran one, and stopped is graded exactly like a drill that ran all
+#   four, so a protection layer that bailed out early reads as a clean pass.
+#   Rule 5 says a run that proved nothing must fail; here the two judges are
+#   simply not looking at the evidence of that.
+#
+# THE FAILING TRACES
+#   post_effect_drill(k=1, n=4, idempotent=False), one call only:
+#     SEND                                       -> call 1
+#     POST_EFFECT effect_applied=True            -> call 1
+#     RECV fault=DROP_RESPONSE served_from=NONE  -> call 1
+#     RECV served_from=CACHE                      -> call 1
+#   Scores TS=True with one of the four promised calls.
+#
+#   order_sensitive_drill(k=1, n=2), one call only:
+#     SEND                                       -> call 1
+#     RECV fault=RIVAL_RESPONSE served_from=NONE -> call 1
+#     RECV served_from=MESSAGE                    -> call 1
+#   Scores TS=True with one of the two promised calls.
+#
+# WHO MUST DECIDE
+#   P1's scorer owner with P4's comparator/dashboard owner, because the
+#   answer changes what the headline number claims to have measured. If the
+#   answer is "promise", the other two judges owe the same treatment
+#   `_healthy_calls` already gives k-of-n. If the answer is "label", the
+#   dashboards must stop presenting n as something the run covered.
+
+
+# --- B3: does `spec.idempotent` change the duplicate verdict? -------------
+#
+# QUESTION
+#   For a non-idempotent operation, should a retry that re-applies the side
+#   effect score `mult=True` even when the two attempts sit on two different
+#   `call_index` values?
+#
+# WHY IT MATTERS
+#   `spec.idempotent` is read nowhere in this module. A drill declared
+#   `idempotent=False` - the flag whose entire meaning is "doing this twice
+#   would cause real harm" - is graded by exactly the same duplicate rule as
+#   a safe read, so PS and Mult say nothing about the case the flag exists
+#   to describe. This is the decision that would catch B1's double charge.
+#
+# THE FAILING TRACE
+#   The B1 trace, unchanged: a non-idempotent post_effect drill whose effect
+#   is applied on call 1 and again on call 2. Today it scores PS=True,
+#   mult=False, TS=True - the safety flag agreed with a double charge.
+#
+# WHO MUST DECIDE
+#   P1's scorer owner with P2's proxy owner, and only after B1: deciding
+#   "yes" is unimplementable while a retry is still its own `call_index`, so
+#   B3 without B1 leaves a rule nobody can write.
