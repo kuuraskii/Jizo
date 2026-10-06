@@ -50,6 +50,15 @@ from .scoring import (
     evaluate,
     score_run,
 )
+from .axes import (
+    AXIS_LABELS,
+    AXIS_ORDER,
+    Axis,
+    AxisRun,
+    AxisScore,
+    axis_scores,
+    axis_scores_from_events,
+)
 
 __all__ = [
     # schemas
@@ -90,4 +99,12 @@ __all__ = [
     "configure_logging",
     "get_logger",
     "log_breaker_transition",
+    # axes (P4)
+    "AXIS_LABELS",
+    "AXIS_ORDER",
+    "Axis",
+    "AxisRun",
+    "AxisScore",
+    "axis_scores",
+    "axis_scores_from_events",
 ]

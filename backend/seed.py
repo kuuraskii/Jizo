@@ -70,7 +70,7 @@ from .schemas import (
 )
 from .scoring import score_run
 from .secrets import get_config
-from .store import record_transition, save_run
+from .store import policy_to_row, record_transition, save_run
 
 
 # ---------------------------------------------------------------------------
@@ -289,30 +289,13 @@ async def seed(session: AsyncSession, reset: bool = False) -> dict[str, int]:
         print("[seed] cleared existing rows")
 
     # -- api_registry ----------------------------------------------------
+    # One mapping, not two: the insert goes through `store.policy_to_row()`
+    # so a new `ApiPolicy` field lands in the seed automatically instead of
+    # needing a second edit here.
     policies = _policies()
     for policy in policies:
         if await session.get(ApiRegistryRow, policy.api_key) is None:
-            session.add(
-                ApiRegistryRow(
-                    api_key=policy.api_key,
-                    base_url=policy.base_url,
-                    timeout_s=policy.timeout_s,
-                    max_attempts=policy.max_attempts,
-                    backoff_initial_s=policy.backoff_initial_s,
-                    backoff_max_s=policy.backoff_max_s,
-                    jitter_s=policy.jitter_s,
-                    breaker_window=policy.breaker_window,
-                    breaker_error_threshold=policy.breaker_error_threshold,
-                    breaker_min_volume=policy.breaker_min_volume,
-                    breaker_sleep_s=policy.breaker_sleep_s,
-                    half_open_probes=policy.half_open_probes,
-                    half_open_window_s=policy.half_open_window_s,
-                    idempotent=policy.idempotent,
-                    criticality=policy.criticality,
-                    courtesy_rps=policy.courtesy_rps,
-                    owner="team-praann",
-                )
-            )
+            session.add(policy_to_row(policy, owner="team-praann"))
     await session.commit()
     print(f"[seed] {len(policies)} api_registry rows ready")
 
@@ -341,11 +324,17 @@ async def seed(session: AsyncSession, reset: bool = False) -> dict[str, int]:
     # A CLOSED baseline entry per api, so `/breaker/state` (Sec. 7.7) and the
     # dashboard's "all CLOSED" starting state (Sec. 11.3 step 1) have
     # something to read before Aditi's P2 writes real transitions.
-    existing = (
-        await session.execute(select(BreakerTransitionRow.api_key).limit(1))
-    ).first()
-    if existing is None:
-        for policy in policies:
+    #
+    # Per-api, not global: checking "does ANY transition exist" meant adding
+    # a fourth upstream later left it with no baseline row at all.
+    have_baseline = set(
+        (
+            await session.execute(select(BreakerTransitionRow.api_key).distinct())
+        ).scalars().all()
+    )
+    missing = [p for p in policies if p.api_key not in have_baseline]
+    if missing:
+        for policy in missing:
             await record_transition(
                 session,
                 api_key=policy.api_key,
@@ -356,7 +345,7 @@ async def seed(session: AsyncSession, reset: bool = False) -> dict[str, int]:
                 commit=False,
             )
         await session.commit()
-        print(f"[seed] {len(policies)} baseline breaker transitions")
+        print(f"[seed] {len(missing)} baseline breaker transitions")
 
     print(f"[seed] done - {len(policies)} registry rows, "
           f"{len(RUN_BUILDERS)} runs, {events_written} request_logs rows")

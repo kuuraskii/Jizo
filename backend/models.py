@@ -72,7 +72,9 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -147,43 +149,53 @@ class ApiRegistryRow(Base):
 
     # Sec. 7.6 calls this `timeout`; P1's frozen ApiPolicy calls it
     # `timeout_s`, so we keep the Pydantic name.
-    timeout_s: Mapped[float] = mapped_column(Float, nullable=False, default=3.0)
-    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    timeout_s: Mapped[float] = mapped_column(Float, nullable=False, default=3.0,
+                                          server_default="3.0")
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3,
+                                           server_default="3")
 
     # Sec. 11.4: BACKOFF_INIT=0.075; BACKOFF_MAX=1.8; JITTER=0.05.
     # The cap is what stops attempt 10 waiting ~77s after the customer has
     # already given up.
     backoff_initial_s: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.075
+        Float, nullable=False, default=0.075, server_default="0.075"
     )
-    backoff_max_s: Mapped[float] = mapped_column(Float, nullable=False, default=1.8)
-    jitter_s: Mapped[float] = mapped_column(Float, nullable=False, default=0.05)
+    backoff_max_s: Mapped[float] = mapped_column(Float, nullable=False, default=1.8,
+                                              server_default="1.8")
+    jitter_s: Mapped[float] = mapped_column(Float, nullable=False, default=0.05,
+                                        server_default="0.05")
 
     # Sec. 11.4: WINDOW=100; ERROR_PCT=25; VOLUME_MIN=20; SLEEP=10;
     # PROBE_RATE='10/5s'. Five breaker parameters from Falahah et al. 2021
     # Sec. 3 (citing Aquino et al. 2019 + Richardson 2018).
-    breaker_window: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    breaker_window: Mapped[int] = mapped_column(Integer, nullable=False, default=100,
+                                             server_default="100")
     breaker_error_threshold: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.25
+        Float, nullable=False, default=0.25, server_default="0.25"
     )
-    breaker_min_volume: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
-    breaker_sleep_s: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
-    half_open_probes: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
-    half_open_window_s: Mapped[float] = mapped_column(Float, nullable=False, default=5.0)
+    breaker_min_volume: Mapped[int] = mapped_column(Integer, nullable=False, default=20,
+                                                 server_default="20")
+    breaker_sleep_s: Mapped[float] = mapped_column(Float, nullable=False, default=10.0,
+                                                server_default="10.0")
+    half_open_probes: Mapped[int] = mapped_column(Integer, nullable=False, default=10,
+                                               server_default="10")
+    half_open_window_s: Mapped[float] = mapped_column(
+        Float, nullable=False, default=5.0, server_default="5.0")
 
     # Whether retrying is safe. GET is safe; a write is not. An explicit
     # per-operation flag, never inferred from the HTTP method -
     # `notes/README.md` Sec. 4 records why idempotence is not safety (51% of
     # real operations are state-changing, Tan et al. 2026 Table I).
-    idempotent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    idempotent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True,
+                                          server_default=true())
     criticality: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="medium"
+        String(16), nullable=False, default="medium", server_default="medium"
     )
 
     # Sec. 4: per-dependency bulkhead pool (Sec. 7 "Max Concurrent Request"
     # is breaker parameter 2 of 5). Sec. 10 requires Nominatim <= 1 rps.
     bulkhead_max_concurrency: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=20
+        Integer, nullable=False, default=20, server_default="20"
     )
     courtesy_rps: Mapped[float | None] = mapped_column(Float, nullable=True)
 
@@ -359,18 +371,20 @@ class RequestLogRow(Base):
     # --- the five load-bearing columns ---------------------------------
     # Read directly by backend/scoring.py. Drop or rename any of these and
     # no historical run can be re-scored.
-    effect_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    effect_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False,
+                                              server_default=false())
     leaked_raw_error: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
+        Boolean, nullable=False, default=False, server_default=false()
     )
     served_from: Mapped[str] = mapped_column(
-        String(_ENUM_LEN), nullable=False, default="none"
+        String(_ENUM_LEN), nullable=False, default="none", server_default="none"
     )
     fault: Mapped[str | None] = mapped_column(String(_ENUM_LEN), nullable=True)
     # Counts CALLS, advancing only on SEND. Distinct from `occurrence`,
     # which counts ROWS. One call logs a failed attempt AND a fallback, so
     # reading "the 3rd call" off a row counter would silently drift.
-    call_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    call_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1,
+                                         server_default="1")
     # ---------------------------------------------------------------------
 
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -456,10 +470,12 @@ class FiRunRow(Base):
     guard_min_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     fault: Mapped[str] = mapped_column(String(_ENUM_LEN), nullable=False)
-    idempotent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    idempotent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True,
+                                              server_default=true())
 
     # "n" in k-of-n: how many repeated calls the drill watches.
-    total_occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    total_occurrences: Mapped[int] = mapped_column(Integer, nullable=False, default=4,
+                                                server_default="4")
 
     # --- the verdict ----------------------------------------------------
     # Nullable on purpose: see the class docstring. The CHECK constraint
