@@ -273,8 +273,5 @@ each one.
 
 ---
 
-**Team Praann (ID 60)** · Microsoft Innovate 2026, Round 1
-Theme: Cloud Infrastructure & Reliability Engineering
-Problem: *When the Upstream API Goes Down*
 
 MIT licensed.
