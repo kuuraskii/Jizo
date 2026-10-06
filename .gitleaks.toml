@@ -1,0 +1,20 @@
+# JIZO gitleaks config (owner: P6).
+#
+# gitleaks is auto-detected by both the pre-commit hook and CI, so this file
+# is the single place the allowlist lives.
+#
+# The one thing it must ignore: `.secrets.baseline` is detect-secrets' own
+# output, and its `hashed_secret` values are SHA1s that gitleaks' generic
+# `api-key` rule reads as credentials. They are hashes of *reviewed false
+# positives* - ignoring the file is correct, not a workaround.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "detect-secrets baseline + generated dashboard pages"
+paths = [
+  '''\.secrets\.baseline$''',
+  '''frontend/_dashboard\.html$''',
+  '''frontend/_preview\.html$''',
+]

@@ -20,7 +20,10 @@ azure-keyvault-secrets==4.8.0
 # Not transitive: asyncpg alone does not pull it in.
 greenlet==3.1.1
 
-# P4 integration (Riya) - uncomment when starting P4
-# fastapi==0.115.5
-# uvicorn==0.32.1
-# websockets==14.1
+# P4 integration (Riya) - ACTIVE. FastAPI is needed to import backend.main,
+# which tests/test_main.py and tests/test_integration.py exercise. Leaving
+# these commented made CI install no FastAPI and every one of those tests
+# error on import.
+fastapi==0.115.5
+uvicorn==0.32.1
+websockets==14.1
