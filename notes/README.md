@@ -6,6 +6,12 @@ bite the team later.
 
 Read this before changing anything in `backend/`.
 
+| File | What is in it |
+|---|---|
+| `README.md` | This file - theory, thresholds, design reasoning |
+| `RIYA_P1_SCORING.md` | P1 scorer handover, co-owned by Pushkar + Riya |
+| `PRD_P2_ACCEPTANCE_CONFLICT.md` | **Read before rehearsing the demo.** The PRD's P2 acceptance test ("3 forced 503s -> OPEN") cannot pass with the sourced volume threshold of 20. The breaker is right; the wording is wrong. |
+
 ---
 
 ## 1. Where the numbers come from
@@ -160,6 +166,30 @@ faulted call. Two mistakes it must never make:
 An adversarial review of Part 1 (deliberately hunting for false passes)
 found **6 ways a broken run could score TS = PASS**, plus several false
 FAILs. All fixed, each with a regression test; the suite went 19 -> 32.
+
+A later round reviewed Part 2 and found **10 more** in `breaker.py` and
+`logging_conf.py` - the worst being a breaker that closed itself having sent
+**zero** requests, and a `redact()` that raised `RecursionError` into the
+caller's `except` and masked the real failure. Full trail in
+`testcases/REVIEW_FIXES.md`; the breaker rows in `edgecases/README.md`.
+
+A third round used `pytest --cov --cov-branch` instead of reading, and found
+two things review-by-reading had missed both times:
+
+1. **`is_open` / `is_closed` / `is_half_open` all drove the state machine.**
+   They read `effective_state`, which performs the OPEN -> HALF_OPEN step. The
+   purity fix had left them behind, and the test written to guard purity only
+   checked `state`, so it passed. A dashboard polling `is_half_open` was
+   arming a probe budget on a dependency nobody called.
+2. **A test that asserted something trivially true.**
+   `test_one_failed_probe_reopens_the_breaker` never entered HALF_OPEN, so the
+   reopen code never ran and the assertion held only because the breaker had
+   never left OPEN. It is the exact failure this whole review process exists to
+   catch, sitting inside the suite that was supposed to catch it.
+
+The lesson worth keeping: both parts looked finished and both had a bug that
+faked a passing result. A green suite is not the same as a correct one - and
+counting tests, or reading them carefully, misses more than measuring them.
 
 The two structural lessons, worth keeping:
 

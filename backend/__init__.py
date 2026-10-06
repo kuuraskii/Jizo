@@ -33,6 +33,19 @@ from .faults import (
     order_sensitive_drill,
     post_effect_drill,
 )
+from .breaker import (
+    BreakerRegistry,
+    BulkheadPool,
+    CircuitBreaker,
+    GateResult,
+)
+from .logging_conf import (
+    CORE_FIELDS,
+    CallLogger,
+    configure_logging,
+    get_logger,
+    log_breaker_transition,
+)
 from .scoring import (
     evaluate,
     score_run,
@@ -66,4 +79,15 @@ __all__ = [
     # scoring
     "evaluate",
     "score_run",
-    ]
+    # breaker (P2)
+    "BreakerRegistry",
+    "BulkheadPool",
+    "CircuitBreaker",
+    "GateResult",
+    # logging (P2)
+    "CORE_FIELDS",
+    "CallLogger",
+    "configure_logging",
+    "get_logger",
+    "log_breaker_transition",
+]

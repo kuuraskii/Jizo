@@ -15,7 +15,7 @@ Per-file breakdown:
 * `cases_k_of_n.md` - pattern 3 (4 cases) + guard and bus mechanics
 * `REVIEW_FIXES.md` - what the code review found and why each fix matters
 
-Current status: **32 passed**.
+Current status: **180 passed**.
 
 ## Why these tests exist
 
@@ -92,7 +92,7 @@ one fails loudly if the old bug ever returns.
 | 28 | `test_call_index_is_not_row_count` | Call 1 logs 3 rows | `call_indexs == [1,1,2]` | k must mean call number, not row number |
 | 29 | `test_k_of_n_survives_calls_that_log_two_rows` | Row-heavy calls, k=2 | `ts=True` | Row drift must not shift the target |
 | 30 | `test_drill_using_a_non_default_fault_is_not_scored_as_missed` | Order-sensitive drill with `DELAY` | `miss=False`, `ts=True` | Judges read `spec.fault`, not a literal |
-| 31 | `test_ts_lives_on_the_outcome_not_only_the_score` | Any run | `outcome.ts == score_run().ts` | One definition of TS |
+| 31 | `test_ts_lives_on_the_outcome_too` | Any run | `outcome.ts == score_run().ts` | One definition of TS |
 | 32 | `test_fi_run_converts_to_a_matching_spec` | `FiRun` wire shape | Converts without drift | Callers must not hand-roll this |
 
 See `testcases/REVIEW_FIXES.md` for the full before/after of each bug.
