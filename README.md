@@ -163,6 +163,33 @@ Requires Python 3.11. The only hard dependencies are `pydantic` (validation)
 and `pytest`. `structlog` is **optional** — the suite is green with it installed
 and with it absent.
 
+### Run the whole thing
+
+```bash
+# 1. database - one command brings up Postgres (healthy in ~10s)
+docker compose up -d
+export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
+python -m alembic upgrade head
+python -m backend.seed
+
+# 2. the runnable product (FastAPI: /route/plan, /fi/run, /breaker/state, /health)
+uvicorn backend.main:app --port 8000
+
+# 3. the dashboard - a native window, no browser, no URL to type
+pip install -r requirements-gui.txt          # optional; falls back to a browser
+python -m backend.dashboard --api-key weather
+```
+
+On a fresh machine the suite is the gate:
+
+```bash
+python -m pytest -q          # 419 tests; the DB-backed ones skip if no Postgres
+```
+
+The full stage walkthrough lives in [`docs/demo-script.md`](docs/demo-script.md).
+Quality gates (secret scan + CI) are configured in `.pre-commit-config.yaml`
+and `.github/workflows/ci.yml`.
+
 ### Using the breaker
 
 ```python
@@ -203,11 +230,13 @@ Three rules, all load-bearing:
 
 | Path | What lives there |
 |---|---|
-| `backend/` | The library: contracts, evidence bus, scorer, breaker, logging |
-| `tests/` | 180 tests across four files |
+| `backend/` | The library: contracts, evidence bus, scorer, breaker, proxy, store, dashboard |
+| `frontend/` | The dashboard UI (no build step — plain HTML/CSS/JS) |
+| `tests/` | The suite, unit + integration |
 | `testcases/` | What each test proves, grouped and numbered |
 | `edgecases/` | Known limitations, each with an owner |
 | `notes/` | Where the numbers come from and why the design is shaped this way |
+| `docs/` | The 5-minute demo script |
 | `setup_venv.bat` / `.sh` | One-command environment setup |
 
 Start with `backend/README.md` for usage, then `notes/` for the reasoning
@@ -217,13 +246,16 @@ behind the thresholds.
 
 | Part | Scope | Status |
 |---|---|---|
-| P1 | Contracts, evidence bus, temporal guards, TS scorer | **Complete** — 90 tests |
-| P2 | Circuit breaker, bulkhead, structured logging | **Complete** — 90 tests, 99% coverage |
-| P2 | `config.py`, `proxy.py` (`resilient_get`) | In progress |
-| P3–P6 | Persistence, integration, console, QA | Planned |
+| P1 | Contracts, evidence bus, temporal guards, TS scorer | **Complete** |
+| P2 | Circuit breaker, bulkhead, structured logging, `config.py`, `proxy.py` | **Complete** |
+| P3 | Persistence: models, migrations, store API, seed, health, secrets | **Complete** |
+| P4 | FastAPI routes, control-vs-experiment comparison, 4-axis scores | **Complete** |
+| P5 | Dashboard: native window + headless `snapshot()` | **Complete** |
+| P6 | QA gates, integration tests, demo script, rehearsal | **Complete** |
 
 The P1 schema in `backend/schemas.py` is the **frozen contract**. Every later
-part plugs into it; it does not change without telling the whole team.
+part plugs into it; it does not change without telling the whole team. A test
+(`tests/test_schemas_frozen.py`) enforces that.
 
 ---
 
