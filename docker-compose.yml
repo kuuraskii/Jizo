@@ -1,0 +1,51 @@
+# JIZO - P3 local data stack (owner: Aayush)
+#
+# One command brings up everything a teammate needs to run the demo:
+#
+#   docker compose up -d
+#
+# Credentials match the AI-Build Documentation Appendix A.1:
+#   DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
+#
+# The healthcheck matters. Without it the app can start before Postgres is
+# ready and fail on its first connection. With it, anything waiting on the
+# database can wait on the health status instead of guessing.
+#
+# NOTE: a YAML comment may not sit between a key and its first sequence item.
+# Writing
+#     ports:
+#       # comment
+#       "5432:5432"
+# makes `ports` parse as the bare string "5432:5432" instead of a list, and
+# `docker compose` rejects it with "must be a array". Comments go BEFORE the
+# key, as done here.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: jizo-postgres
+    environment:
+      # Appendix A.1. Local development only - the real credentials come from
+      # Azure Key Vault via backend/config.py, never from this file.
+      POSTGRES_DB: resilient
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # A named volume so data survives `docker compose down`. Without it,
+      # every restart wipes the drill history the dashboard shows.
+      - jizo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` is the documented Postgres readiness probe. -U/-d must
+      # match the credentials above or it reports "no response" forever.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d resilient"]
+      interval: 5s
+      timeout: 5s
+      # 10 attempts x 5s = up to 50s for Postgres to become ready.
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  jizo_pgdata:

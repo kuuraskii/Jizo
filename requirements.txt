@@ -7,12 +7,16 @@ pytest==9.1.1
 # structlog==24.4.0
 # anyio==4.6.2
 
-# P3 data/cloud (Aayush) - uncomment when starting P3
-# sqlalchemy==2.0.36
-# asyncpg==0.30.0
-# alembic==1.14.0
-# azure-identity==1.17.1
-# azure-keyvault-secrets==4.8.0
+# P3 data/cloud (Aayush) - ACTIVE
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+azure-identity==1.17.1
+azure-keyvault-secrets==4.8.0
+# Required by SQLAlchemy's async support. Without it every await on a
+# session raises "the greenlet library is required to use this function".
+# Not transitive: asyncpg alone does not pull it in.
+greenlet==3.1.1
 
 # P4 integration (Riya) - uncomment when starting P4
 # fastapi==0.115.5
