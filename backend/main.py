@@ -114,6 +114,7 @@ from .store import (
     load_run,
     load_run_evidence,
     load_registry,
+    record_transition,
     register_registry,
     save_run,
     spec_to_row,
@@ -336,6 +337,45 @@ def _verdict_payload(verdict: ScoreResult, spec: DrillSpec) -> dict:
         "notes": verdict.notes,
         "spec": spec.summary(),
     }
+
+
+async def _persist_breaker_transitions(
+    session: AsyncSession,
+    breaker,
+    api_key: str,
+    since: int,
+) -> int:
+    """Write breaker state changes made since `since` into `breaker_transitions`.
+
+    P2's breaker keeps its state changes in memory (`breaker.transitions()`),
+    and `proxy.py` only *logs* them. Nothing wrote them to the table P3
+    provides, so `/health` and the dashboard - both of which read
+    `breaker_transitions` - showed a frozen CLOSED baseline while the breaker
+    was actually opening. That is the one thing a judge watches during the
+    "sustained failures -> OPEN" moment.
+
+    `since` is the length of the transition log *before* the call, so only the
+    changes this request caused are written. Re-writing older entries would
+    duplicate the timeline on every poll. The transition's own `at` is a
+    monotonic clock reading, not a wall clock, so it is deliberately not used
+    as the row timestamp - the server's `now()` is.
+    """
+    transitions = breaker.transitions()
+    new = transitions[since:]
+    if not new:
+        return 0
+    for from_state, to_state, _at, error_pct in new:
+        await record_transition(
+            session,
+            api_key=api_key,
+            from_state=from_state,
+            to_state=to_state,
+            error_pct=error_pct,
+            reason="live call",
+            commit=False,
+        )
+    await session.commit()
+    return len(new)
 
 
 async def _persist_events(
@@ -732,6 +772,18 @@ async def route_plan(
     experiment: dict = {}
     control: dict = {}
 
+    # The experiment arm is the one wired to breakers. Capture each breaker's
+    # transition count so only the flips THIS request caused are persisted -
+    # re-writing older entries would duplicate the timeline on every poll.
+    protected_breakers = {
+        api_key: registry.get(load_policy(api_key))
+        for api_key in ("weather", "geocode")
+    }
+    transitions_before = {
+        api_key: len(breaker.transitions())
+        for api_key, breaker in protected_breakers.items()
+    }
+
     try:
         experiment, _ = await one_arm("experiment", experiment_bus)
         control, _ = await one_arm("control", control_bus)
@@ -752,6 +804,12 @@ async def route_plan(
             mode="control",
             attempt_by_api=_attempts_by_api(control),
         )
+        # Breaker flips, so /health and the dashboard see them. In the
+        # `finally` so a failed arm still records what it did to the breaker.
+        for api_key, breaker in protected_breakers.items():
+            await _persist_breaker_transitions(
+                session, breaker, api_key, transitions_before[api_key]
+            )
 
     # The comparator reads the evidence we just persisted, so the report is
     # built from the same rows a judge can query later. `mode=arm` is passed
@@ -899,6 +957,10 @@ async def fi_run(
 
     fault_events: list[EvidenceEvent] = []
     attempts_for_events: list[int] = []
+    # One breaker for the whole drill, so its state is what the drill drives.
+    # `transitions_before` lets us persist only the flips this drill caused.
+    breaker = state.registry.get(policy)
+    transitions_before = len(breaker.transitions())
     try:
         # One iteration per LOGICAL occurrence. Retries happen inside a single
         # `resilient_get` call and stay inside it, so `call_index` advances
@@ -911,7 +973,7 @@ async def fi_run(
                 policy=policy,
                 trace_id=trace_id,
                 bus=bus,
-                breaker=state.registry.get(policy),
+                breaker=breaker,
                 fallback=state.ladder_for(spec.target.api_key),
                 spec=spec,
                 client=state.http(),
@@ -962,6 +1024,13 @@ async def fi_run(
             if len(attempts_for_events) == len(fault_events)
             else None
         ),
+    )
+
+    # A breaker that flipped during the drill must land in the table the
+    # dashboard and /health read, or the "sustained failures -> OPEN" moment
+    # never appears on screen.
+    await _persist_breaker_transitions(
+        session, breaker, spec.target.api_key, transitions_before
     )
 
     await hub.broadcast(
