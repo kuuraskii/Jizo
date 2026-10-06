@@ -395,11 +395,57 @@ answer: the suite was written first, then attacked.
 
 ## 9. Important implementation decisions
 
-**Healthy calls are the *observed* calls other than k, not all of `1..n`.**
-A call that was never made cannot have degraded, so `K_OF_N` only requires the
-calls that actually appear in the trace to have served LIVE. This also
-reproduces the documented `n=1` case (`edgecases/README.md` S-12), where the
-expected-healthy list is empty and CW rests on the faulted call alone.
+**Healthy calls are `1..n` except k, read from `spec.total_occurrences`.**
+A call that never happened cannot be observed to be healthy, so a trace that
+stops early would otherwise score a perfect run: the protection layer bailed
+out, the last calls never ran, and nothing was degraded because nothing was
+tried. `total_occurrences` is the drill's own promise, so a promise that went
+unkept is a failure. When `n == 1` the expected-healthy list is empty and CW
+rests on the faulted call alone (`edgecases/README.md` S-12).
+
+**CW asks about the faulted call specifically.** `_answered` requires a
+servable row that (a) sits at `spec.target.phase`, (b) belongs to
+`faulted_call`, and (c) is at or after the fault in timeline order. All three
+restrictions close separate false passes: a `served_from` set on a bookkeeping
+row, an answer served *before* the fault, and an answer on a *later, unrelated*
+call (a different customer request) rescuing a silent faulted one. The
+fallback that saves a customer must be logged on the call that failed — see
+`backend/README.md` rule 4, which tells P2 exactly that.
+
+**The post-effect guard window requires `effect_applied`.** The window means
+"the commit happened", so a `POST_EFFECT` row with `effect_applied=False` must
+not open it. Without this check a drill that never created the outcome-uncertain
+window it claims to test scored PASS.
+
+**The guard window is matched on `spec.guard.api_key` as well as phase.**
+`FiRun` accepts target and guard as independent wire fields, so a guard may
+legitimately watch a different dependency than the one being drilled. Matching
+on phase alone let an unrelated API's rows open the window.
+
+**A fault at the wrong phase is premature.** `spec.target.phase` is now read in
+`_premature_notes`. A fault on the right call but the wrong phase never struck
+the window under test, so the run proves nothing about it.
+
+**`committed_on_rival` is bounded by the rival's call, not the timeline.** A
+commit on a *later* call is the system legitimately acting on fresh real data;
+punishing that failed a correct run. Only a commit on the rival's own call can
+mean the stale answer was trusted.
+
+**`rival_served` requires `spec.fault is RIVAL_RESPONSE`.** Treating any live
+fault row as a stale payload misread non-rival faults - a `DELAY` that still
+delivered live data is not a leak.
+
+**`_served_live` reads the call's LAST response-phase row.** An `any()` match
+called a call healthy when it served live and then died on the same call.
+
+**Fields the scorer reads:** `spec.fault`, `spec.target.phase`,
+`spec.target.occurrence`, `spec.total_occurrences`, `spec.guard.phase`,
+`spec.guard.api_key`, `spec.guard.min_count`, and on each event `api_key`,
+`phase`, `call_index`, `served_from`, `effect_applied`, `fault`,
+`leaked_raw_error`. **Not read:** `spec.idempotent` (a duplicate is penalised
+unconditionally, which is the safe direction) and `EvidenceEvent.breaker_state`
+(the breaker opening does not by itself fail a drill — pinned deliberately by
+`test_breaker_state_alone_does_not_fail_a_drill`).
 
 **`premature` is the union flag.** It is true if *any* applicable reason holds:
 fired on the wrong occurrence, fired before the guard evidence, guard window
@@ -454,15 +500,22 @@ from backend import (
 
 bus = EvidenceBus()
 
-# A healthy call.
-bus.record("trace-1", "weather", Phase.SEND)
-bus.record("trace-1", "weather", Phase.RECV, served_from=ServedFrom.LIVE)
+# Calls 1 and 2 are healthy.
+for _ in range(2):
+    bus.record("trace-1", "weather", Phase.SEND)
+    bus.record("trace-1", "weather", Phase.RECV,
+               served_from=ServedFrom.LIVE, status_code=200)
 
 # The third call is the one that breaks, and recovers from cache.
 bus.record("trace-1", "weather", Phase.SEND)
 bus.record("trace-1", "weather", Phase.RECV,
            fault=FaultType.HTTP_500, served_from=ServedFrom.NONE)
 bus.record("trace-1", "weather", Phase.RECV, served_from=ServedFrom.CACHE)
+
+# Call 4 is healthy too - the drill promised four calls.
+bus.record("trace-1", "weather", Phase.SEND)
+bus.record("trace-1", "weather", Phase.RECV,
+           served_from=ServedFrom.LIVE, status_code=200)
 
 spec = k_of_n_drill("trace-1", "weather", k=3, n=4)
 result = score_run(spec, bus.events("trace-1"))
@@ -472,6 +525,11 @@ print(result.explain())
 # TS=PASS | CW=y | PS=y | Prem=n | Miss=n | Mult=n
 print(result.notes)    # plain-English reasons for the dashboard
 ```
+
+All four calls are load-bearing. Omit the cache row and `CW` is false - the
+faulted call served the customer nothing. Omit call 4 and `CW` is false too,
+because `n=4` was promised. Earlier drafts of this snippet dropped one or both
+and claimed `TS=PASS`; the scorer was right and the snippet was wrong.
 
 Useful things on the result:
 

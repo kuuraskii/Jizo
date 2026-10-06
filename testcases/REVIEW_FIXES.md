@@ -1,8 +1,8 @@
 # Review Fixes - What Changed and Why
 
-An independent review of Part 1 found **6 false-pass bugs** and several
+An independent review of Part 1 found **12 documented bugs, 8 of them false passes** and several
 correctness gaps in the scorer. All are fixed, each with a regression test.
-The suite went from 19 to **32 tests**.
+The suite went from 36 to **82 tests** across both files.
 
 This file exists so the change is auditable rather than mysterious.
 
@@ -51,7 +51,7 @@ manufactured a pass even when the faulted call served nothing.
 **Fix:** `_answered()` now requires `call_index >= faulted call` **and**
 `phase is spec.target.phase`.
 
-Test: `test_post_effect_detects_missing_commit_evidence` (via the CW note).
+Test: `test_served_from_on_a_bookkeeping_row_cannot_manufacture_a_pass` (via the CW note).
 
 ### B3 - k-of-n `CW` needed only one healthy live call (false PASS)
 
@@ -133,7 +133,7 @@ call number.
 
 **Fix:** added `call_index` to `EvidenceEvent`, which advances only on
 `SEND`. Judges and `GuardEvaluator` use it. Verified: a trace whose call 1
-logs three rows still reports `recv call_indexs == [1, 1, 2, 2, 3]`.
+logs three rows still reports ``recv_calls == [1, 1, 2]``.
 
 Tests: `test_call_index_is_not_row_count`,
 `test_k_of_n_survives_calls_that_log_two_rows`.
@@ -191,7 +191,7 @@ are unchanged.
 | Row drift, k=2 | PASS | PASS |
 | Headline k=3-of-4 | PASS | PASS |
 
-**11/11 correct, 32/32 tests pass.**
+**11/11 correct, 82/82 tests pass.**
 
 ## Known gaps still open
 
