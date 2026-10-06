@@ -393,16 +393,21 @@ def _can_retry(
         2. wall-clock time left in the retry budget,
         3. the HTTP method is inherently safe (GET / HEAD / OPTIONS), or
            the policy marks the call idempotent,
-        4. the active drill (if any) says this call is safe to retry -
-           ``post_effect_drill`` ships ``idempotent=False`` precisely to
-           stop a naive retry from committing the action twice,
-        5. the breaker (if any) says retrying is allowed. While OPEN it
-           refuses - that is the retry-storm guard, and it is why a
-           storm cannot be made worse by us.
+        4. the active drill - and only a drill targeting THIS api_key -
+           says this call is safe to retry. ``post_effect_drill`` ships
+           ``idempotent=False`` precisely to stop a naive retry from
+           committing the action twice,
+        5. the breaker (if any) is not OPEN. That is the retry-storm guard,
+           and it is why a storm cannot be made worse by us.
 
-    Gate 4 exists because ``breaker.should_retry`` reads the *policy's*
-    idempotency, not the drill's. Without it, a post-effect drill against
-    a GET would be retried three times.
+    Gate 4 is scoped to this api_key: an unrelated drill (a different
+    api_key) must not silently switch retries off for this call.
+
+    Gate 5 reads the breaker's STATE only. Whether a retry is *safe* is
+    decided here (gates 3-4, which know the HTTP method and the drill);
+    asking ``breaker.should_retry()`` re-applied ``policy.idempotent``, so
+    wiring a breaker made a safe GET stop retrying - the protected path
+    retried *less* than the unprotected one, the opposite of the intent.
     """
     if attempt_1based >= policy.max_attempts:
         return False
@@ -410,9 +415,10 @@ def _can_retry(
         return False
     if method not in _SAFE_METHODS and not policy.idempotent:
         return False
-    if spec is not None and not spec.idempotent:
+    if (spec is not None and spec.target.api_key == policy.api_key
+            and not spec.idempotent):
         return False
-    if breaker is not None and not breaker.should_retry(attempt_1based):
+    if breaker is not None and breaker.effective_state is not BreakerState.CLOSED:
         return False
     return True
 

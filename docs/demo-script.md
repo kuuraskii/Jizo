@@ -1,7 +1,8 @@
 # JIZO — 5-minute demo script
 
 Owner: P6. Two full timed rehearsals before stage; hold the "30 seconds left"
-card. Read the **Pre-flight** section out loud once while the machine boots.
+card. This walks the **Demo App** (`/`) and the **Dashboard** (`/dashboard`) —
+both served by the same process, reading the same database.
 
 The harness is a tiny **logistics dispatcher** that confirms a delivery route
 using two real APIs nobody owns — Open-Meteo (weather) and Nominatim
@@ -10,7 +11,7 @@ weather app" on stage; introduce it as *the test harness for the JIZO library*.
 
 ---
 
-## Pre-flight (do this before you walk on)
+## Pre-flight (before you walk on)
 
 ```bash
 docker compose up -d                       # Postgres, healthy in ~10s
@@ -18,20 +19,25 @@ export DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/resili
 python -m alembic upgrade head
 python -m backend.seed                     # registry + demo runs + baselines
 
-uvicorn backend.main:app --port 8000 &     # the runnable product
-python -m backend.dashboard --api-key weather &   # the watchtower
+uvicorn backend.main:app --port 8000
 ```
 
-Smoke check (all three must be true before you start):
+> **Port note:** if a local Postgres already holds 5432, either stop it or map
+> the container elsewhere and set `DATABASE_URL` to match. The demo does not
+> care which port, only that `DATABASE_URL` points at the seeded database.
+
+Open **http://localhost:8000** in a browser. Keep **/dashboard** in a second tab.
+
+Smoke check (all three must print `ok`):
 
 ```bash
-curl -s localhost:8000/health  | grep -q '"status"'   && echo "health ok"
-curl -s localhost:8000/ready   | grep -q '"ready":true' && echo "ready ok"
-curl -s "localhost:8000/route/plan?mode=experiment"   | grep -q '"trace_id"' && echo "route ok"
+curl -s localhost:8000/health | grep -q '"status"' && echo "health ok"
+curl -s localhost:8000/ready  | grep -q '"ready":true' && echo "ready ok"
+curl -s localhost:8000/ | grep -q "Demo App" && echo "demo ok"
 ```
 
-If **Wi-Fi is off**, the demo still runs: fallbacks come from cache/seed
-defaults. Say so — it is a feature, not a rescue.
+If **Wi-Fi is off**, the demo still runs: the fallback ladder serves cache and
+seeded defaults. Say so — it is a feature, not a rescue.
 
 ---
 
@@ -45,129 +51,124 @@ defaults. Say so — it is a feature, not a rescue.
 > evidence. JIZO is a resilience layer that **proves** it works — by breaking
 > things on purpose, at known timings, and scoring what happened."
 
-### 0:30 — One call, fully protected (45s)
+### 0:30 — Protect: one confirm, live (30s)
 
-```bash
-curl -s "localhost:8000/route/plan?mode=experiment"
-```
+On the **Demo App**, click **Confirm route**.
 
-> "One route confirm fans out to both APIs through the protector: timeout,
-> bounded retry with backoff and jitter, a circuit breaker, and a fallback
-> ladder — live, then cache, then a default, then a clear message. Every call
-> carries `X-Breaker-State`."
+> "One route confirm fans out to weather and geocoding through the protector.
+> Both answered **live**."
 
-Point at the dashboard: **hero = HEALTHY**, eight trend charts, the single
-**API Key dropdown**.
+Point at the **mechanism strip** (`Timeout → Retry → Circuit breaker →
+Fallback`), the two cards (`LIVE`), and the **Live evidence** table.
 
-### 1:15 — Moment 1: the post-effect drill (45s)
+> "That table isn't a mock — every row is a real request, read back out of the
+> database. Attempt 1, status 200, 900ms."
 
-```bash
-curl -s -X POST localhost:8000/fi/run -H 'content-type: application/json' -d '{
-  "run_id":"demo-post-effect",
-  "pattern":"post_effect",
-  "fault":"http_500",
-  "target":{"api_key":"weather","phase":"post_effect","occurrence":1},
-  "guard":{"api_key":"weather","phase":"post_effect","min_count":1},
-  "total_occurrences":1,
-  "idempotent":false
-}'
-```
+### 1:00 — Degrade: break the upstreams (45s)
 
-> "The dangerous failure isn't slow — it's *did it already happen?* This call
-> commits a side effect, then the dependency fails. Watch `Mult`."
+Click **☠ Break the upstreams**, then **Confirm route** again.
 
-On the dashboard, the **Drill Scorecards** panel updates; `Mult=false`, `TS=true`.
+> "I just killed both APIs."
 
-### 2:00 — Moment 2: k-of-n, only call 3 (45s)
+Verdict turns amber, badges go `CACHE`, **Retry + Timeout + Fallback** light up,
+`attempts: 3`.
 
-```bash
-curl -s -X POST localhost:8000/fi/run -H 'content-type: application/json' -d '{
-  "run_id":"demo-k-of-n",
-  "pattern":"k_of_n",
-  "fault":"http_500",
-  "target":{"api_key":"weather","phase":"recv","occurrence":3},
-  "guard":{"api_key":"weather","phase":"send","min_count":3},
-  "total_occurrences":4,
-  "idempotent":true
-}'
-```
+> "It retried three times, timed out, and served a cached answer. **The
+> customer never saw an error.**"
 
-> "Four logical calls. We break exactly the third. Only the third falls back;
-> one, two and four never noticed. That precision is the whole point — a
-> random fault test would have broken the wrong call and told you nothing."
+### 1:45 — Resist: the circuit breaker (60s)
 
-Dashboard: the third call's row shows `servedFrom=default`, the others `live`.
+In the **Circuit breaker** panel, click **Hammer it** (~5s).
 
-### 2:45 — Moment 3: sustained failures → OPEN → recover (60s)
+> "Now I stop being polite — sustained failures until the breaker opens."
 
-> "Now we stop being polite. Sustained 5xx until the breaker opens."
+Chip flips to **OPEN**. Then click **Confirm route**.
 
-Drive failures up to the sourced minimum sample (volume 20), or use the demo
-policy with `breaker_min_volume=5` — **and say which one out loud**:
+> "`attempts: 0`. It stopped touching the API entirely — that's the retry-storm
+> guard. A retry storm against a dying dependency is how you turn their outage
+> into yours."
 
-```bash
-for i in $(seq 1 20); do
-  curl -s "localhost:8000/route/plan?mode=control" >/dev/null
-done
-curl -s localhost:8000/breaker/state
-```
+Click **Recover** (~13s — narrate over it: *"it waits out the sleep window,
+then probes with a limited budget — never a stampede"*).
 
-> "`OPEN`. From here the protector stops touching the upstream — fast-fail,
-> zero retries. A retry storm against a dying dependency is how you turn their
-> outage into yours. Watch the dashboard."
+> "Back to **CLOSED**, automatically."
 
-Point at the **hero flipping to NOT WELL** (hot pink) and **Open Circuit
-Breakers** ticking up. Then restore and recover:
+### 2:45 — Prove: fault injection (75s)
 
-```bash
-# after the sleep window, the probe budget arms automatically
-curl -s "localhost:8000/route/plan?mode=experiment"   # HALF_OPEN probe
-curl -s localhost:8000/breaker/state                  # -> CLOSED on success
-```
+In the **Proof** panel, click each drill. Each prints a verdict.
 
-> "OPEN, then a limited probe — never a stampede — then CLOSED. Automatic."
+- **Post-effect** → `PASS`. *"The dangerous one: the answer is lost after the
+  work committed. `Mult ✓` — it did **not** charge twice."*
+- **k-of-n** → `PASS`. *"Four calls, we break exactly the third. Only the third
+  fell back; one, two and four never noticed."*
+- **Order-sensitive** → `PASS`. *"A rival answer arrives before the real one. It
+  never committed on the stale data."*
 
-### 3:45 — The watchtower (45s)
+> "This is the difference: we don't assert the protection works — we break the
+> call at a known timing and **score** it."
 
-Switch the **API Key dropdown** from weather to another dependency.
+### 4:00 — Observe: the dashboard (45s)
 
-> "One dropdown, one screen, no scrolling. Every number here is read from the
-> same proof log a judge can query later — this is not a mock-up."
+Switch to the **/dashboard** tab (or click **Open dashboard**).
 
-Point at the **4-axis radar** and **Protected vs Control** bars.
+> "Same process, same database — the demo's traffic is already here."
 
-### 4:30 — Close (30s)
+Point at the hero, the eight trend charts, the **open breakers** count, the
+**TS scorecards**, the **4-axis radar**, and the **Protected vs Control** bars.
 
-> "Success went from 75% unprotected to 96% protected — measured, not claimed.
-> Every number in this deck traces to a test, a log line, or a cited paper.
-> **Proven, not assumed.**"
+> "This is the watchtower. Every number traces to a row a judge can query."
+
+### 4:45 — Close (15s)
+
+> "Success goes from ~75% unprotected to ~96% protected — measured, not
+> claimed. Every number in this deck traces to a test, a log line, or a cited
+> paper. **Proven, not assumed.**"
+
+---
+
+## What each step proves (rubric mapping)
+
+| Step | JIZO method |
+|---|---|
+| Confirm (live) | the happy path; persistence |
+| Break upstreams | timeout, retry with backoff, fallback ladder |
+| Hammer → OPEN | circuit breaker |
+| Confirm while OPEN | storm guard (fast-fail, zero upstream contact) |
+| Recover | probe budget; OPEN → HALF_OPEN → CLOSED |
+| The three drills | temporal fault injection + the TS scorer |
+| Dashboard | control-vs-experiment, 4-axis radar, the proof log |
+
+**Not on screen: the bulkhead** (per-dependency concurrency limiter). Say it in
+words — "a per-dependency pool so one slow API can't starve the others" — don't
+pretend you showed it.
 
 ---
 
 ## The 30-second fallback card (if the live demo dies)
 
-Do **not** debug on stage. Switch to the offline pack and keep talking:
+Do **not** debug on stage. Keep talking and switch to:
 
-1. `backend/dashboard.py` renders the same board from the database with no
-   server: `python -m backend.dashboard` (falls back to a browser tab).
-2. `curl -s localhost:8000/health` — show dependency truth even if the UI is
-   down.
-3. Show the last structured log line: attempts, `breaker_state`, `served_from`.
-4. Show the saved screenshot of the 3 drill moments.
+1. **/dashboard** still renders from the database with no upstreams — the same
+   board, from stored rows.
+2. `curl -s localhost:8000/health` — dependency truth even if the UI is down.
+3. The **Live evidence** table — the stored attempts, from Postgres.
+4. A saved screenshot of the five steps.
 
-> "The live box is struggling — which is exactly the failure JIZO is built
-> for. Here is the same evidence, captured a minute ago."
+> "The live box is struggling — which is exactly the failure JIZO is built for.
+> Here is the same evidence, captured a minute ago."
 
-Keep printed/offline copies of: the dashboard screenshot, the `/health`
-payload, and one drill log line.
+Keep printed/offline copies of: a dashboard screenshot, the `/health` payload,
+and one drill log line.
 
 ---
 
 ## Rehearsal discipline
 
-- Run the whole thing **twice, timed**, on the actual demo laptop.
-- Rehearse the **sleep window** in Moment 3 (the breaker needs ~10s before the
-  probe) — fill it with the "retry storm" line, don't stand in silence.
+- Run the whole thing **twice, timed**, on the demo laptop.
+- **Restarting the server resets the in-memory breakers to CLOSED** — a clean
+  start. Rehearse from a fresh `uvicorn`.
+- Rehearse the **Recover wait** (~13s). Fill it with the probe-budget line.
 - Rehearse the **offline path** with Wi-Fi physically off.
-- Nobody waits on anyone: if a teammate's panel isn't ready, the script still
-  completes on the dashboard + curls.
+- Nominatim rate-limits: if the first click shows `DEFAULT` instead of `LIVE`,
+  that is real, not broken — say *"there, it just degraded, and the route still
+  confirmed."*

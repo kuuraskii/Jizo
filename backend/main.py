@@ -77,8 +77,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import quote
 
@@ -89,23 +91,34 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .breaker import BreakerRegistry
 from .compare import CompareResult, compare_sides, resolve_mode
 from .config import load_policy
+from .dashboard import Dashboard
+from .dashboard import snapshot as dashboard_snapshot
 from .db import dispose_engine, get_session, get_sessionmaker
 from .faults import EvidenceBus
 from .health import check_health, check_ready
 from .logging_conf import configure_logging, get_logger
 from .models import FiRunRow, RequestLogRow
 from .proxy import FallbackLadder, resilient_get
-from .schemas import DrillSpec, EvidenceEvent, FiRun, ScoreResult, ServedFrom
+from .schemas import (
+    BreakerState,
+    DrillSpec,
+    EvidenceEvent,
+    FiRun,
+    ScoreResult,
+    ServedFrom,
+)
 from .scoring import score_run
 from .secrets import get_config
 from .store import (
@@ -113,6 +126,7 @@ from .store import (
     load_run,
     load_run_evidence,
     load_registry,
+    record_transition,
     register_registry,
     save_run,
     spec_to_row,
@@ -139,6 +153,24 @@ VALUE_CACHE_MAX = 256
 #: unbounded value lets a single request tie up the worker with millions of
 #: calls. The demo never needs more than a handful; this only stops abuse.
 MAX_DRILL_OCCURRENCES = 100
+
+#: Seeded demo defaults - the fallback ladder's third rung. When the live API
+#: and the cache are both unavailable, the dispatcher still confirms a route
+#: for its home city instead of showing an error.
+_DEMO_DEFAULTS: dict[str, Any] = {
+    "weather": {
+        "source": "seeded default",
+        "location": "Delhi",
+        "temperature_2m": 31.0,
+        "wind_speed_10m": 8.4,
+    },
+    "geocode": {
+        "source": "seeded default",
+        "display_name": "New Delhi, Delhi, India",
+        "lat": 28.6139,
+        "lon": 77.2090,
+    },
+}
 
 
 class AppState:
@@ -335,6 +367,45 @@ def _verdict_payload(verdict: ScoreResult, spec: DrillSpec) -> dict:
         "notes": verdict.notes,
         "spec": spec.summary(),
     }
+
+
+async def _persist_breaker_transitions(
+    session: AsyncSession,
+    breaker,
+    api_key: str,
+    since: int,
+) -> int:
+    """Write breaker state changes made since `since` into `breaker_transitions`.
+
+    P2's breaker keeps its state changes in memory (`breaker.transitions()`),
+    and `proxy.py` only *logs* them. Nothing wrote them to the table P3
+    provides, so `/health` and the dashboard - both of which read
+    `breaker_transitions` - showed a frozen CLOSED baseline while the breaker
+    was actually opening. That is the one thing a judge watches during the
+    "sustained failures -> OPEN" moment.
+
+    `since` is the length of the transition log *before* the call, so only the
+    changes this request caused are written. Re-writing older entries would
+    duplicate the timeline on every poll. The transition's own `at` is a
+    monotonic clock reading, not a wall clock, so it is deliberately not used
+    as the row timestamp - the server's `now()` is.
+    """
+    transitions = breaker.transitions()
+    new = transitions[since:]
+    if not new:
+        return 0
+    for from_state, to_state, _at, error_pct in new:
+        await record_transition(
+            session,
+            api_key=api_key,
+            from_state=from_state,
+            to_state=to_state,
+            error_pct=error_pct,
+            reason="live call",
+            commit=False,
+        )
+    await session.commit()
+    return len(new)
 
 
 async def _persist_events(
@@ -550,11 +621,175 @@ async def breaker_state(request: Request) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Routes: the demo front door + the dashboard
+# ---------------------------------------------------------------------------
+
+#: Where the static pages live (the demo page and the dashboard shell).
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+
+@app.get("/", response_class=HTMLResponse)
+async def demo_page() -> HTMLResponse:
+    """The demo app: a dispatcher that confirms a route through JIZO.
+
+    Served by the SAME process that owns the protection stack, so a click here
+    runs the real protector and writes real ``request_logs`` and breaker
+    transitions. That is what makes the demo provable instead of a mock.
+    """
+    return HTMLResponse((FRONTEND_DIR / "demo.html").read_text(encoding="utf-8"))
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page() -> HTMLResponse:
+    """The watchtower, served as a page so the demo can link straight to it.
+
+    Uses the same ``snapshot()`` the native window uses, so both show identical
+    numbers - and both read the rows the demo just wrote.
+    """
+    payload = await dashboard_snapshot()
+    return HTMLResponse(Dashboard().render_html(payload))
+
+
+@app.get("/dashboard/snapshot")
+async def dashboard_snapshot_route(
+    api_key: Optional[str] = None,
+) -> JSONResponse:
+    """Live data for the dashboard page's refresh timer."""
+    return JSONResponse(await dashboard_snapshot(api_key))
+
+
+# The dashboard shell loads these by relative path. A native window reads them
+# from disk; the /dashboard page needs them served, or it renders unstyled and
+# without its script.
+@app.get("/styles.css", include_in_schema=False)
+async def dashboard_css() -> Response:
+    return Response((FRONTEND_DIR / "styles.css").read_text(encoding="utf-8"),
+                    media_type="text/css")
+
+
+@app.get("/app.js", include_in_schema=False)
+async def dashboard_js() -> Response:
+    return Response((FRONTEND_DIR / "app.js").read_text(encoding="utf-8"),
+                    media_type="application/javascript")
+
+
+@app.get("/demo/activity")
+async def demo_activity(
+    trace_id: Optional[str] = None,
+    limit: int = 40,
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    """Recent ``request_logs`` - the raw proof the demo is not hardcoded.
+
+    Every row is an attempt the protector actually made, read straight out of
+    Postgres. The demo page shows these under the result.
+    """
+    if trace_id:
+        stmt = (
+            select(RequestLogRow)
+            .where(RequestLogRow.trace_id == trace_id)
+            .order_by(RequestLogRow.id)
+        )
+    else:
+        stmt = (
+            select(RequestLogRow)
+            .order_by(RequestLogRow.id.desc())
+            .limit(max(1, min(limit, 200)))
+        )
+    rows = (await session.execute(stmt)).scalars().all()
+    return JSONResponse(
+        {
+            "rows": [
+                {
+                    "traceId": r.trace_id,
+                    "apiKey": r.api_key,
+                    "phase": r.phase,
+                    "attempt": r.attempt,
+                    "status": r.status_code,
+                    "latencyMs": r.latency_ms,
+                    "servedFrom": r.served_from,
+                    "breakerState": r.breaker_state,
+                    "fault": r.fault,
+                }
+                for r in rows
+            ]
+        }
+    )
+
+
+@app.post("/demo/breaker")
+async def demo_breaker(
+    request: Request,
+    action: str = Query("hammer", description="hammer | recover"),
+    api_key: str = Query("weather"),
+    session: AsyncSession = Depends(get_session),
+) -> JSONResponse:
+    """Drive one breaker OPEN (hammer) or back to CLOSED (recover).
+
+    Every step is a real ``resilient_get`` call - nothing calls
+    ``record_failure`` by hand. Hammer points at a dead port with
+    ``max_attempts=1`` so the failures are genuine and fast (no retry
+    backoff); recover probes the real upstream until the breaker closes.
+    """
+    if action not in ("hammer", "recover"):
+        raise HTTPException(status_code=422,
+                            detail="action must be 'hammer' or 'recover'")
+
+    state = state_of(request)
+    policy = load_policy(api_key)
+    breaker = state.registry.get(policy)
+    before = len(breaker.transitions())
+    fast = policy.model_copy(update={"max_attempts": 1})
+
+    if action == "hammer":
+        calls = 0
+        while breaker.effective_state is not BreakerState.OPEN and calls < 200:
+            # A 0.15s per-attempt timeout: the point is the *failure*, and the
+            # demo cannot wait 2s per call for the OS to give up on a dead
+            # port. Still a real call through the real protector.
+            await resilient_get(api_key, "http://127.0.0.1:9/hammer",
+                                policy=fast, breaker=breaker,
+                                client=state.http(), timeout_s=0.15)
+            calls += 1
+        steps = calls
+    else:
+        # Recovery needs the sleep window to elapse before the breaker will
+        # arm a probe. Refused calls return instantly, so this waits with a
+        # short sleep rather than spinning, and the step cap is generous
+        # enough to cover the window plus the probe budget.
+        url = _plan_shape("Delhi")[api_key]
+        deadline = time.monotonic() + policy.breaker_sleep_s + 25
+        steps = 0
+        while (breaker.effective_state is not BreakerState.CLOSED
+               and steps < 250 and time.monotonic() < deadline):
+            await resilient_get(api_key, url, policy=fast, breaker=breaker,
+                                client=state.http())
+            steps += 1
+            if breaker.effective_state is not BreakerState.CLOSED:
+                await asyncio.sleep(0.15)
+
+    written = await _persist_breaker_transitions(
+        session, breaker, api_key, before
+    )
+    return JSONResponse(
+        {
+            "apiKey": api_key,
+            "action": action,
+            "state": breaker.state.value,
+            "steps": steps,
+            "transitionsWritten": written,
+            "windowSize": breaker.window_size(),
+            "errorPct": round(breaker.error_pct(), 1),
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Routes: the control-vs-experiment fan-out
 # ---------------------------------------------------------------------------
 
 
-def _plan_shape(address: str) -> dict[str, str]:
+def _plan_shape(address: str, simulate: bool = False) -> dict[str, str]:
     """Build the two upstream URLs for one address.
 
     One function so the control arm and the experiment arm request *identical*
@@ -565,7 +800,15 @@ def _plan_shape(address: str) -> dict[str, str]:
     it goes into a URL. Without that, ``a&limit=100`` injects an extra upstream
     parameter and ``New Delhi`` puts a raw space in the query - neither of which
     is the question the caller actually asked.
+
+    ``simulate`` points both at a dead port. That is the demo's "break the
+    upstreams" switch: the call path is untouched, so the real protector
+    retries, trips the breaker and walks the fallback ladder exactly as it
+    would in a real outage. Nothing is mocked.
     """
+    if simulate:
+        return {"weather": "http://127.0.0.1:9/weather",
+                "geocode": "http://127.0.0.1:9/geocode"}
     encoded = quote(address, safe="")
     return {
         "weather": (
@@ -585,6 +828,7 @@ async def route_plan(
     request: Request,
     mode: str = Query("experiment", description="control | experiment"),
     address: str = Query("Delhi", description="address to plan a route for"),
+    simulate: int = Query(0, description="1 = point the upstreams at a dead port"),
     session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
     """Fan out to weather and geocode, protected or unprotected, and compare.
@@ -612,7 +856,7 @@ async def route_plan(
     # trace), and it leaks an implementation detail into stored evidence.
     # The format mirrors P2's own `proxy._new_trace_id`.
     trace_id = f"t-plan-{uuid.uuid4().hex[:12]}"
-    urls = _plan_shape(address)
+    urls = _plan_shape(address, simulate=bool(simulate))
     registry = state.registry
 
     # ONE EvidenceBus per arm, both keyed by the SAME trace_id.
@@ -646,7 +890,13 @@ async def route_plan(
                 else None
             )
             if protected:
-                fallback = state.ladder_for(f"{api_key}:{address}")
+                # `default` is the ladder's third rung. Without it a failed
+                # live call skips straight to the terminal message, so the
+                # demo's "served the seeded default" moment never happens.
+                fallback = state.ladder_for(
+                    f"{api_key}:{address}",
+                    default=_DEMO_DEFAULTS.get(api_key),
+                )
             else:
                 # The control arm must be genuinely unprotected. It previously
                 # reused the experiment arm's ladder (same cache key
@@ -731,6 +981,18 @@ async def route_plan(
     experiment: dict = {}
     control: dict = {}
 
+    # The experiment arm is the one wired to breakers. Capture each breaker's
+    # transition count so only the flips THIS request caused are persisted -
+    # re-writing older entries would duplicate the timeline on every poll.
+    protected_breakers = {
+        api_key: registry.get(load_policy(api_key))
+        for api_key in ("weather", "geocode")
+    }
+    transitions_before = {
+        api_key: len(breaker.transitions())
+        for api_key, breaker in protected_breakers.items()
+    }
+
     try:
         experiment, _ = await one_arm("experiment", experiment_bus)
         control, _ = await one_arm("control", control_bus)
@@ -751,6 +1013,12 @@ async def route_plan(
             mode="control",
             attempt_by_api=_attempts_by_api(control),
         )
+        # Breaker flips, so /health and the dashboard see them. In the
+        # `finally` so a failed arm still records what it did to the breaker.
+        for api_key, breaker in protected_breakers.items():
+            await _persist_breaker_transitions(
+                session, breaker, api_key, transitions_before[api_key]
+            )
 
     # The comparator reads the evidence we just persisted, so the report is
     # built from the same rows a judge can query later. `mode=arm` is passed
@@ -841,6 +1109,23 @@ async def fi_run(
             ),
         )
 
+    # Column widths: fi_runs.run_id is VARCHAR(128); the *_api columns are
+    # VARCHAR(64). An over-long value used to reach asyncpg and raise
+    # "value too long", which FastAPI served as a 500 - a bad request must be
+    # a 422.
+    if len(spec.run_id) > 128:
+        raise HTTPException(
+            status_code=422,
+            detail=f"run_id exceeds 128 characters ({len(spec.run_id)})",
+        )
+    for label, value in (("target.api_key", spec.target.api_key),
+                         ("guard.api_key", spec.guard.api_key)):
+        if len(value) > 64:
+            raise HTTPException(
+                status_code=422,
+                detail=f"{label} exceeds 64 characters ({len(value)})",
+            )
+
     try:
         policy = load_policy(spec.target.api_key)
     except KeyError as exc:
@@ -869,10 +1154,22 @@ async def fi_run(
     # earlier attempt that never finished; leave it for save_run to repair.
     if existing is None:
         session.add(spec_to_row(spec))
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Two requests raced the same run_id between our SELECT and INSERT.
+            # Roll back and treat it as the idempotent case rather than a 500.
+            await session.rollback()
+            stored = await load_run(session, spec.run_id)
+            if stored is not None:
+                return JSONResponse(_verdict_payload(stored, spec))
 
     fault_events: list[EvidenceEvent] = []
     attempts_for_events: list[int] = []
+    # One breaker for the whole drill, so its state is what the drill drives.
+    # `transitions_before` lets us persist only the flips this drill caused.
+    breaker = state.registry.get(policy)
+    transitions_before = len(breaker.transitions())
     try:
         # One iteration per LOGICAL occurrence. Retries happen inside a single
         # `resilient_get` call and stay inside it, so `call_index` advances
@@ -885,7 +1182,7 @@ async def fi_run(
                 policy=policy,
                 trace_id=trace_id,
                 bus=bus,
-                breaker=state.registry.get(policy),
+                breaker=breaker,
                 fallback=state.ladder_for(spec.target.api_key),
                 spec=spec,
                 client=state.http(),
@@ -936,6 +1233,13 @@ async def fi_run(
             if len(attempts_for_events) == len(fault_events)
             else None
         ),
+    )
+
+    # A breaker that flipped during the drill must land in the table the
+    # dashboard and /health read, or the "sustained failures -> OPEN" moment
+    # never appears on screen.
+    await _persist_breaker_transitions(
+        session, breaker, spec.target.api_key, transitions_before
     )
 
     await hub.broadcast(

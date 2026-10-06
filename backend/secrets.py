@@ -24,7 +24,7 @@ block into `.env` and it works:
     MAX_ATTEMPTS=3
     OPENMETEO_BASE=https://api.open-meteo.com/v1/forecast
     NOMINATIM_BASE=https://nominatim.openstreetmap.org/search
-    NOMINATIM_UA=ResilientLogisticsDemo/1.0 (contact: team@example.com)
+    NOMINATIM_UA=JIZO/1.0 (+https://github.com/kuuraskii/Jizo)
     DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
     AZURE_KEYVAULT_URL=
 
@@ -100,7 +100,7 @@ DEFAULTS: dict[str, str] = {
     "OPENMETEO_BASE": "https://api.open-meteo.com/v1/forecast",
     "NOMINATIM_BASE": "https://nominatim.openstreetmap.org/search",
     # Sec. 10: Nominatim requires a custom User-Agent and <= 1 rps courtesy.
-    "NOMINATIM_UA": "ResilientLogisticsDemo/1.0 (contact: team@example.com)",
+    "NOMINATIM_UA": "JIZO/1.0 (+https://github.com/kuuraskii/Jizo)",
     "NOMINATIM_RPS": "1",
     # Appendix A.1 database name is `resilient`, not `jizo`.
     "DATABASE_URL": (
