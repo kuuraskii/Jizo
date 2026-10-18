@@ -15,7 +15,7 @@ That is the minimum needed to answer a mentor's question: "how do you know
 the breaker opened in three seconds rather than thirty?" You filter on
 `api_key` and `breaker_state`, and read `latency_ms`.
 
-`structlog` renders these. It is optional at import time so that `import jizo`
+`structlog` renders these. It is optional at import time so that `import jizores`
 never fails for a user who only wants the library - the same rule as
 `requirements-gui.txt` for pywebview.
 """

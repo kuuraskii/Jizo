@@ -1,9 +1,9 @@
-"""Tests for the public `jizo` package.
+"""Tests for the public `jizores` package.
 
 The point of these is that "usable by a third party" is a claim that rots
-quietly. A new eager import in some module would quietly make `import jizo`
+quietly. A new eager import in some module would quietly make `import jizores`
 pull in a database driver again; a renamed function would quietly break
-`from jizo import ...`. These tests fail loudly instead.
+`from jizores import ...`. These tests fail loudly instead.
 
 Owner: third-party packaging work.
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 import backend
-import jizo
+import jizores
 
 #: Repository root, so we can find pyproject.toml.
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,18 +52,18 @@ def run_python(code: str) -> str:
 
 
 def test_importing_jizo_does_not_drag_in_the_heavy_dependencies():
-    """`import jizo` alone must not load the database or the web server.
+    """`import jizores` alone must not load the database or the web server.
 
     This is the whole reason the public package exists. If somebody later adds
-    an eager `from .dashboard import ...` at the top of a module that `jizo`
+    an eager `from .dashboard import ...` at the top of a module that `jizores`
     reaches, this test catches it on the next CI run.
     """
     loaded = run_python(
-        "import sys, jizo; "
+        "import sys, jizores; "
         f"print(','.join(m for m in {HEAVY_DEPS!r} if m in sys.modules))"
     )
     assert loaded == "", (
-        "importing jizo pulled in " + loaded + ". Those belong behind the "
+        "importing jizores pulled in " + loaded + ". Those belong behind the "
         "db/server/gui extras, not the core import."
     )
 
@@ -71,11 +71,11 @@ def test_importing_jizo_does_not_drag_in_the_heavy_dependencies():
 def test_using_the_breaker_does_not_drag_in_the_database_layer():
     """Asking for a circuit breaker must not load SQLAlchemy.
 
-    `from jizo import CircuitBreaker` is the single most likely thing a third
+    `from jizores import CircuitBreaker` is the single most likely thing a third
     party will write, so it gets its own check.
     """
     loaded = run_python(
-        "import sys; from jizo import CircuitBreaker; "
+        "import sys; from jizores import CircuitBreaker; "
         "print(','.join(m for m in ('sqlalchemy', 'fastapi', 'asyncpg') "
         "if m in sys.modules))"
     )
@@ -83,13 +83,13 @@ def test_using_the_breaker_does_not_drag_in_the_database_layer():
 
 
 def test_the_headline_api_is_reachable_from_the_package_root():
-    """`resilient_get` must be importable straight from `jizo`.
+    """`resilient_get` must be importable straight from `jizores`.
 
     It used to live only at `backend.proxy.resilient_get`, which forced every
     caller to know the internal file layout. That is not a public API.
     """
-    assert callable(jizo.resilient_get)
-    assert jizo.resilient_get is not None
+    assert callable(jizores.resilient_get)
+    assert jizores.resilient_get is not None
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +97,10 @@ def test_the_headline_api_is_reachable_from_the_package_root():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", jizo.__all__)
+@pytest.mark.parametrize("name", jizores.__all__)
 def test_every_advertised_name_actually_resolves(name):
     """Nothing in `__all__` may be a promise the package cannot keep."""
-    assert getattr(jizo, name) is not None
+    assert getattr(jizores, name) is not None
 
 
 def test_the_export_map_and_all_list_agree():
@@ -109,7 +109,7 @@ def test_the_export_map_and_all_list_agree():
     They are written out separately on purpose - `__all__` has to be a literal
     for type checkers - so a test has to hold them together.
     """
-    assert set(jizo._EXPORTS) | {"__version__"} == set(jizo.__all__)
+    assert set(jizores._EXPORTS) | {"__version__"} == set(jizores.__all__)
 
 
 def test_the_export_map_and_all_list_agree_for_the_internal_package():
@@ -120,14 +120,14 @@ def test_the_export_map_and_all_list_agree_for_the_internal_package():
 def test_an_unknown_name_fails_with_a_helpful_message():
     """A typo should say what went wrong, not raise a bare ImportError."""
     with pytest.raises(AttributeError) as caught:
-        jizo.definitely_not_a_real_name  # noqa: B018 - the access is the test
+        jizores.definitely_not_a_real_name  # noqa: B018 - the access is the test
     assert "definitely_not_a_real_name" in str(caught.value)
     assert "__all__" in str(caught.value)
 
 
 def test_dir_lists_the_public_surface():
     """Tab completion in an editor should offer the real names."""
-    listed = dir(jizo)
+    listed = dir(jizores)
     for name in ("resilient_get", "CircuitBreaker", "ApiPolicy"):
         assert name in listed
 
@@ -177,17 +177,17 @@ def test_the_version_is_defined_once_and_matches_the_packaging_metadata():
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     declared = pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"]
 
-    assert declared == "jizo.__version__", (
-        "pyproject should read the version from jizo.__version__ so there is "
+    assert declared == "jizores.__version__", (
+        "pyproject should read the version from jizores.__version__ so there is "
         "only one place to update it"
     )
-    assert jizo.__version__.count(".") == 2, (
-        f"{jizo.__version__!r} should look like a released version, e.g. 0.1.0"
+    assert jizores.__version__.count(".") == 2, (
+        f"{jizores.__version__!r} should look like a released version, e.g. 0.1.0"
     )
 
 
 def test_the_core_dependencies_are_only_the_ones_the_core_needs():
-    """A third party's first `pip install jizo` must stay small.
+    """A third party's first `pip install jizores` must stay small.
 
     Two dependencies. Anything heavier belongs in an extra - that is what
     makes the library pleasant to adopt for a single HTTP call.
@@ -219,16 +219,16 @@ def test_the_heavy_libraries_are_declared_as_extras():
 def test_the_install_instructions_do_not_point_at_the_wrong_package():
     """`pip install jizo` installs a stranger's package, not ours.
 
-    The name `jizo` on PyPI belongs to an unrelated 1 KB placeholder
-    published in February 2025 by another user, and PyPI names cannot be
-    re-registered once taken. It also ships a top-level `jizo` package, so it
-    would collide with ours. A README printing that command would hand a third
-    party the wrong code and let them conclude JIZO is broken.
+    The name `jizo` on PyPI belongs to an unrelated 1 KB placeholder published
+    in February 2025 by another user, and PyPI names cannot be re-registered
+    once taken. It also ships an *empty* top-level `jizo/__init__.py`, so
+    installing it overwrites ours on disk - after which `from jizo import ...`
+    fails with an ImportError naming nothing useful. Our package is
+    `jizores`, which collides with nothing.
     """
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    # Ours: the renamed distribution, or an explicit reference to this repo.
-    assert "pip install jizo-resilience" in readme, (
+    assert "pip install jizores" in readme, (
         "the README should document the real distribution name"
     )
 
@@ -239,8 +239,8 @@ def test_the_install_instructions_do_not_point_at_the_wrong_package():
         line.strip()
         for line in readme.splitlines()
         if line.strip().startswith("pip install")
+        and "jizores" not in line
         and "jizo" in line
-        and "jizo-resilience" not in line
         and "git+https://github.com/kuuraskii/Jizo" not in line
     ]
     assert not foreign, (
@@ -249,21 +249,30 @@ def test_the_install_instructions_do_not_point_at_the_wrong_package():
     )
 
 
-def test_the_distribution_name_is_not_the_taken_one():
-    """The published name must be `jizo-resilience`, and the import `jizo`.
+def test_the_distribution_name_and_the_import_name_agree():
+    """Both must be `jizores`, and they match by choice rather than accident.
 
-    Guards the pairing: renaming the distribution is fine, letting it drift
-    back to `jizo` would point users at someone else's package.
+    A distribution and an import name are independent, so they can drift. If
+    the distribution ever goes back to the bare `jizo`, users get someone
+    else's package; if only the import changes, the wheel publishes a module
+    nobody is importing.
     """
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
-    assert pyproject["project"]["name"] == "jizo-resilience"
-    assert jizo.__name__ == "jizo", "the import name is not the distribution name"
+    assert pyproject["project"]["name"] == "jizores"
+    assert jizores.__name__ == "jizores"
+    assert (ROOT / "jizores" / "__init__.py").exists(), (
+        "the directory on disk has to match the import name, or the built "
+        "wheel ships an import nobody can use"
+    )
+    assert set(pyproject["tool"]["setuptools"]["packages"]) == {
+        "jizores", "jizores._core",
+    }
 
 
 def test_the_package_declares_the_types_it_ships():
     """PEP 561: without the marker, consumers get no types at all."""
-    assert (ROOT / "jizo" / "py.typed").exists()
+    assert (ROOT / "jizores" / "py.typed").exists()
     assert (ROOT / "backend" / "py.typed").exists()
 
 
@@ -271,16 +280,16 @@ def test_the_install_publishes_the_code_under_a_private_name():
     """`backend` must not be installed top-level.
 
     A package called `backend` in site-packages collides with unrelated
-    projects on the same machine. It is published as `jizo._core` instead.
+    projects on the same machine. It is published as `jizores._core` instead.
     """
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     packages = pyproject["tool"]["setuptools"]["packages"]
 
-    assert "jizo" in packages
-    assert "jizo._core" in packages
+    assert "jizores" in packages
+    assert "jizores._core" in packages
     assert "backend" not in packages, (
         "shipping a top-level `backend` package would collide with other "
-        "projects; the code must be published as jizo._core"
+        "projects; the code must be published as jizores._core"
     )
 
 
@@ -312,7 +321,7 @@ def healthy_upstream():
 def test_a_third_party_can_guard_a_call_using_only_the_public_api(healthy_upstream):
     """The end-to-end promise, written the way an outsider would write it.
 
-    Everything here comes from `jizo`. If this needs `backend.*` to pass, the
+    Everything here comes from `jizores`. If this needs `backend.*` to pass, the
     public package has a hole in it.
 
     Synchronous test wrapping `asyncio.run`, to match the rest of the suite.
@@ -323,19 +332,19 @@ def test_a_third_party_can_guard_a_call_using_only_the_public_api(healthy_upstre
 
     transport, calls = healthy_upstream
 
-    async def scenario() -> tuple[jizo.ResilientResponse, jizo.CircuitBreaker]:
-        policy = jizo.ApiPolicy(
+    async def scenario() -> tuple[jizores.ResilientResponse, jizores.CircuitBreaker]:
+        policy = jizores.ApiPolicy(
             api_key="demo",
             base_url="https://example.invalid",
             timeout_s=2.0,
             breaker_min_volume=2,
         )
-        breaker = jizo.CircuitBreaker(policy)
+        breaker = jizores.CircuitBreaker(policy)
 
         async with httpx.AsyncClient(transport=transport) as client:
             last = None
             for _ in range(2):
-                last = await jizo.resilient_get(
+                last = await jizores.resilient_get(
                     "demo",
                     "https://example.invalid/weather",
                     # Pass the policy *and* the breaker. Without a `policy=`,
@@ -353,20 +362,20 @@ def test_a_third_party_can_guard_a_call_using_only_the_public_api(healthy_upstre
     assert len(calls) == 2, "a healthy call must reach the upstream exactly once"
     assert result.status_code == 200
     assert result.data["temperature_c"] == 21.5
-    assert result.served_from == jizo.ServedFrom.LIVE
+    assert result.served_from == jizores.ServedFrom.LIVE
     assert result.attempts == 1, "a healthy call must not retry"
-    assert breaker.state == jizo.BreakerState.CLOSED
+    assert breaker.state == jizores.BreakerState.CLOSED
 
 
 def test_the_policy_registry_is_reachable_from_the_public_package():
     """`resilient_get` falls back to the registry when no policy is passed.
 
     A third party registering policies at startup must be able to do it
-    through `jizo`, not by reaching into `backend.config`.
+    through `jizores`, not by reaching into `backend.config`.
     """
-    assert callable(jizo.register_policy)
-    assert callable(jizo.load_policy)
+    assert callable(jizores.register_policy)
+    assert callable(jizores.load_policy)
 
-    known = jizo.registered_policies()
+    known = jizores.registered_policies()
     assert known, "the seed registers weather and geocode at import time"
     assert "weather" in known

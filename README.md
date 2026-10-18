@@ -147,7 +147,7 @@ Two different things, two different installs. Pick the one you need.
 #### Install the library
 
 ```bash
-pip install jizo-resilience
+pip install jizores
 ```
 
 That is the whole install. It pulls **`pydantic` and `httpx`, and nothing
@@ -156,42 +156,40 @@ you opt into:
 
 | Extra | Install | What it turns on |
 |---|---|---|
-| *(default)* | `pip install jizo-resilience` | The protection layer: breaker, retry, bulkhead, fallback |
-| `logging` | `pip install "jizo-resilience[logging]"` | `structlog` JSON logs (falls back to stdlib without it) |
-| `db` | `pip install "jizo-resilience[db]"` | The evidence store: migrations, persisted request logs |
-| `server` | `pip install "jizo-resilience[server]"` | The FastAPI service that exposes JIZO over HTTP |
-| `gui` | `pip install "jizo-resilience[gui]"` | The dashboard's native window (falls back to a browser) |
-| `azure` | `pip install "jizo-resilience[azure]"` | Key Vault-backed secrets |
+| *(default)* | `pip install jizores` | The protection layer: breaker, retry, bulkhead, fallback |
+| `logging` | `pip install "jizores[logging]"` | `structlog` JSON logs (falls back to stdlib without it) |
+| `db` | `pip install "jizores[db]"` | The evidence store: migrations, persisted request logs |
+| `server` | `pip install "jizores[server]"` | The FastAPI service that exposes JIZO over HTTP |
+| `gui` | `pip install "jizores[gui]"` | The dashboard's native window (falls back to a browser) |
+| `azure` | `pip install "jizores[azure]"` | Key Vault-backed secrets |
 
-Then import from one place — `jizo` — and never from `backend`:
+Then import from one place — `jizores` — and never from `backend`:
 
 ```python
-from jizo import ApiPolicy, CircuitBreaker, resilient_get
+from jizores import ApiPolicy, CircuitBreaker, resilient_get
 ```
 
-> **The distribution is `jizo-resilience`, the import is `jizo`.** That is
-> deliberate, not a typo. The bare name `jizo` is taken on PyPI by an unrelated
-> 1 KB placeholder package belonging to another user, published February 2025,
-> and PyPI names cannot be re-registered once taken.
->
-> ⚠️ **Do not run `pip install jizo`.** That stub ships an *empty* `jizo`
-> package, so installing it overwrites this one on disk and every
-> `from jizo import ...` then fails with an ImportError that points nowhere
-> useful. If you have already run it, `pip uninstall jizo` and reinstall.
+> **Why not just `jizores` spelled `jizo`?** Because the bare name `jizo` is
+> taken on PyPI by an unrelated 1 KB placeholder package belonging to another
+> user, published February 2025 — and PyPI names cannot be re-registered once
+> taken. That stub also ships an *empty* `jizo` package, so installing it
+> alongside ours would silently overwrite it on disk. `jizores` collides with
+> nothing. ⚠️ If you ever ran `pip install jizo`, run `pip uninstall jizo`
+> before installing this.
 
 Prefer to build from source? Install straight from the repository — same
 package, no PyPI involved:
 
 ```bash
-pip install "jizo-resilience @ git+https://github.com/kuuraskii/Jizo.git"
+pip install "jizores @ git+https://github.com/kuuraskii/Jizo.git"
 ```
 
 ```python
-from jizo import ApiPolicy, CircuitBreaker, resilient_get
+from jizores import ApiPolicy, CircuitBreaker, resilient_get
 ```
 
 The package is fully typed (ships `py.typed`), and names resolve lazily, so
-`from jizo import CircuitBreaker` does not drag in the database layer.
+`from jizores import CircuitBreaker` does not drag in the database layer.
 
 #### Run the demo
 

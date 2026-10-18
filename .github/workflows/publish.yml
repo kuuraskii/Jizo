@@ -70,8 +70,8 @@ jobs:
       - name: Check what we actually built
         run: |
           ls -l dist/
-          test -f dist/jizo_resilience-*.whl
-          test -f dist/jizo_resilience-*.tar.gz
+          test -f dist/jizores-*.whl
+          test -f dist/jizores-*.tar.gz
 
       - uses: actions/upload-artifact@v4
         with:
@@ -86,7 +86,7 @@ jobs:
     # PyPI trusts. The environment must match the one registered in PyPI.
     environment:
       name: pypi
-      url: https://pypi.org/project/jizo-resilience
+      url: https://pypi.org/project/jizores
     permissions:
       id-token: write
     steps:

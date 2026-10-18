@@ -1,17 +1,17 @@
-"""JIZO's public API.
+"""Jizores - the public API for JIZO, the resilience layer.
 
 A third party should only ever need this package::
 
-    from jizo import ApiPolicy, CircuitBreaker, resilient_get
+    from jizores import ApiPolicy, CircuitBreaker, resilient_get
 
 Everything below is resolved on **first use** (PEP 562), not at import time.
-That matters: `from jizo import CircuitBreaker` loads only the breaker, so
+That matters: `from jizores import CircuitBreaker` loads only the breaker, so
 nobody pays for the database, the web server or the dashboard unless they
 actually touch those names. Importing this package costs two dependencies.
 
 The names are split across several modules because each part of JIZO was
 built independently. This file is the seam: it is the one place that decides
-what "JIZO" means to somebody outside the team.
+what "Jizores" means to somebody outside the team.
 """
 
 from __future__ import annotations
@@ -252,11 +252,12 @@ if TYPE_CHECKING:
 def _load(module: str) -> Any:
     """Import one internal module by its short name.
 
-    In an installed JIZO the code lives at `jizo._core.<module>`. In a source
-    checkout - the team's repository, and `pytest` run against it - the same
-    code still sits in `backend/`, because renaming it would have touched every
-    test and every teammate's import. Try the installed path first, fall back
-    to the checkout path. This shim disappears the day `backend/` is renamed.
+    In an installed Jizores the code lives at `jizores._core.<module>`. In a
+    source checkout - the team's repository, and `pytest` run against it - the
+    same code still sits in `backend/`, because renaming it would have touched
+    every test and every teammate's import. Try the installed path first, fall
+    back to the checkout path. This shim disappears the day `backend/` is
+    renamed.
     """
     from importlib import import_module
 
@@ -269,15 +270,15 @@ def _load(module: str) -> Any:
 def __getattr__(name: str) -> Any:
     """Resolve a public name on first use, then remember it.
 
-    PEP 562. Without this, `import jizo` would build the entire library -
+    PEP 562. Without this, `import jizores` would build the entire library -
     including the database layer - before handing back a circuit breaker.
     """
     try:
         module = _EXPORTS[name]
     except KeyError:
         raise AttributeError(
-            f"module 'jizo' has no attribute {name!r}. "
-            f"Public names are listed in jizo.__all__."
+            f"module 'jizores' has no attribute {name!r}. "
+            f"Public names are listed in jizores.__all__."
         ) from None
 
     value = getattr(_load(module), name)
@@ -286,5 +287,5 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    """Make `dir(jizo)` and tab-completion show the real public surface."""
+    """Make `dir(jizores)` and tab-completion show the real public surface."""
     return sorted(__all__)

@@ -7,7 +7,7 @@ repository.
 **Why not just `pip install jizo`?** That name is already taken on PyPI by an
 unrelated 1 KB placeholder package (owner `kaliv0`, published February 2025).
 PyPI names are permanent — once taken, a name cannot be re-registered by
-anyone else. So the distribution is `jizo-resilience` and the import stays
+anyone else. So the distribution is `jizores` and the import stays
 `jizo`.
 
 ---
@@ -35,7 +35,7 @@ does **not** use your account password or an API token.
 
 ### 3. Register JIZO as a trusted publisher
 
-This is what creates the `jizo-resilience` project and lets GitHub publish to
+This is what creates the `jizores` project and lets GitHub publish to
 it without a secret.
 
 1. Go to <https://pypi.org/manage/account/publishing/>.
@@ -44,7 +44,7 @@ it without a secret.
 
    | Field | Value |
    |---|---|
-   | PyPI project name | `jizo-resilience` |
+   | PyPI project name | `jizores` |
    | Owner | `kuuraskii` |
    | Repository name | `Jizo` |
    | Workflow name | `publish.yml` |
@@ -78,14 +78,14 @@ Watch it run at <https://github.com/kuuraskii/Jizo/actions>. Three jobs:
 
 ```
 test     → runs all 559 tests against Postgres; if red, nothing is published
-build    → produces jizo_resilience-0.1.0-py3-none-any.whl and the .tar.gz
+build    → produces jizores-0.1.0-py3-none-any.whl and the .tar.gz
 publish  → mints an OIDC token and uploads to PyPI
 ```
 
 When it finishes, verify:
 
 ```powershell
-pip install jizo-resilience
+pip install jizores
 python -c "import jizo; print(jizo.__version__)"
 ```
 
@@ -105,8 +105,8 @@ version from there, and a test fails if the two ever disagree.
 |---|---|---|
 | `403` or "trusted publisher not found" | Environment name mismatch | Check steps 3 and 4 match exactly, including capitalisation |
 | `invalid` project name error | Project already exists from a manual upload | Use **trusted publishing** only; never upload by hand as well |
-| Build job fails on the wheel check | Distribution renamed without updating it | The check in `publish.yml` expects `jizo_resilience-*.whl` |
-| `from jizo import ...` fails after installing | The unrelated `jizo` stub is also installed | `pip uninstall jizo`, then reinstall `jizo-resilience` |
+| Build job fails on the wheel check | Distribution renamed without updating it | The check in `publish.yml` expects `jizores-*.whl` |
+| `from jizo import ...` fails after installing | The unrelated `jizo` stub is also installed | `pip uninstall jizo`, then reinstall `jizores` |
 
 ---
 

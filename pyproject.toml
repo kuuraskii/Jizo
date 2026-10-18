@@ -3,23 +3,22 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# The distribution name and the import name are deliberately different:
+# The distribution name and the import name are the same: `jizores`.
 #
-#   pip install jizo-resilience      -> the distribution (PyPI)
-#   from jizo import resilient_get   -> the import (unchanged)
+#   pip install jizores              -> the distribution (PyPI)
+#   from jizores import resilient_get -> the import
 #
-# It cannot be plain `jizo`. That name is taken on PyPI by an unrelated 1 KB
-# placeholder belonging to Kaloyan Ivanov, published February 2025. PyPI names
-# are permanent - a name cannot be re-registered once taken - so the only route
-# to a bare `pip install jizo` would be that person handing over ownership,
-# which is not something to plan around.
+# It cannot be plain `jizo`, for two separate reasons:
 #
-# That stub is also a live hazard, and a quiet one. It ships an *empty*
-# top-level `jizo/__init__.py`, so installing it alongside this package
-# overwrites ours - verified on pip 26.2, where `from jizo import
-# resilient_get` then fails with an ImportError naming nothing useful. A test
-# guards the README so we never print that command ourselves.
-name = "jizo-resilience"
+#   1. The name `jizo` is taken on PyPI by an unrelated 1 KB placeholder owned
+#      by Kaloyan Ivanov, published February 2025. PyPI names are permanent -
+#      a taken name is never released for anyone else.
+#   2. That stub also ships an *empty* top-level `jizo/__init__.py`. If a user
+#      installed it, it would overwrite ours on disk: verified on pip 26.2,
+#      after which `from jizo import resilient_get` fails with an ImportError
+#      naming nothing useful. Importing as `jizores` removes that collision
+#      entirely rather than documenting around it.
+name = "jizores"
 description = "A resilience layer for code that depends on APIs you do not control - timeout, bounded retry, circuit breaker, bulkhead and fallback - plus a harness that proves the protection works."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -57,7 +56,7 @@ dependencies = [
     "httpx>=0.27",
 ]
 
-# The version is read from `jizo.__version__` (see [tool.setuptools.dynamic])
+# The version is read from `jizores.__version__` (see [tool.setuptools.dynamic])
 # so there is exactly one place to bump it.
 dynamic = ["version"]
 
@@ -97,25 +96,25 @@ dev = [
 
 [tool.setuptools]
 # `backend/` is the original package name. It stays put in the repository so the
-# team's existing imports and all 433 tests keep working unchanged, but the
-# install publishes it as `jizo._core` - a private, namespaced subpackage.
-# Shipping it under a top-level name like `backend` would collide with other
-# projects on the same machine, which is the exact problem the public `jizo`
-# name exists to solve.
+# team's existing imports and all the existing tests keep working unchanged,
+# but the install publishes it as `jizores._core` - a private, namespaced
+# subpackage. Shipping it under a top-level name like `backend` would collide
+# with other projects on the same machine, which is the exact problem the
+# public package name exists to solve.
 #
 # This works because every internal import in `backend/` is relative
 # (`from .schemas import ...`), so the package does not care what its parent
 # directory is called.
-packages = ["jizo", "jizo._core"]
+packages = ["jizores", "jizores._core"]
 
 [tool.setuptools.package-dir]
-"jizo._core" = "backend"
+"jizores._core" = "backend"
 
 [tool.setuptools.package-data]
 # Ships the PEP 561 marker so consumers get types and inline completion.
-jizo = ["py.typed"]
-"jizo._core" = ["py.typed"]
+jizores = ["py.typed"]
+"jizores._core" = ["py.typed"]
 
 [tool.setuptools.dynamic]
-# Single source of truth for the version: `jizo.__version__`.
-version = { attr = "jizo.__version__" }
+# Single source of truth for the version: `jizores.__version__`.
+version = { attr = "jizores.__version__" }
