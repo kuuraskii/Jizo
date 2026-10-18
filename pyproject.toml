@@ -3,6 +3,15 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
+# The distribution name and the import name are both `jizo` today, but they do
+# not have to stay that way. The `jizo` name on PyPI is taken by an unrelated
+# 1 KB placeholder (published Feb 2025, and it declares Python >= 3.12, so it
+# will not even install on the 3.11 this package supports). Until we publish
+# under a free name, the supported install is straight from this repository:
+#
+#     pip install "jizo @ git+https://github.com/kuuraskii/Jizo.git"
+#
+# A test guards that the README never reverts to a bare `pip install jizo`.
 name = "jizo"
 description = "A resilience layer for code that depends on APIs you do not control - timeout, bounded retry, circuit breaker, bulkhead and fallback - plus a harness that proves the protection works."
 readme = "README.md"

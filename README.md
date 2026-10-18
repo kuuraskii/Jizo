@@ -147,8 +147,15 @@ Two different things, two different installs. Pick the one you need.
 #### Install the library
 
 ```bash
-pip install jizo
+pip install "jizo @ git+https://github.com/kuuraskii/Jizo.git"
 ```
+
+> **Not on PyPI, on purpose — the name is taken.** `pip install jizo` would
+> fetch an unrelated 1 KB placeholder package published by another user in
+> February 2025 (and on Python 3.11 it fails outright, because that package
+> requires ≥3.12). Installing from GitHub is the supported route for now. If
+> we publish later, the import name stays `jizo` regardless of the
+> distribution name.
 
 That is the whole install. It pulls **`pydantic` and `httpx`, and nothing
 else** — no web framework, no database driver. Everything heavier is an extra
@@ -156,12 +163,17 @@ you opt into:
 
 | Extra | Install | What it turns on |
 |---|---|---|
-| *(default)* | `pip install jizo` | The protection layer: breaker, retry, bulkhead, fallback |
-| `logging` | `pip install "jizo[logging]"` | `structlog` JSON logs (falls back to stdlib without it) |
-| `db` | `pip install "jizo[db]"` | The evidence store: migrations, persisted request logs |
-| `server` | `pip install "jizo[server]"` | The FastAPI service that exposes JIZO over HTTP |
-| `gui` | `pip install "jizo[gui]"` | The dashboard's native window (falls back to a browser) |
-| `azure` | `pip install "jizo[azure]"` | Key Vault-backed secrets |
+| *(default)* | `pip install "jizo @ git+https://github.com/kuuraskii/Jizo.git"` | The protection layer: breaker, retry, bulkhead, fallback |
+| `logging` | add `[logging]` to the URL | `structlog` JSON logs (falls back to stdlib without it) |
+| `db` | add `[db]` to the URL | The evidence store: migrations, persisted request logs |
+| `server` | add `[server]` to the URL | The FastAPI service that exposes JIZO over HTTP |
+| `gui` | add `[gui]` to the URL | The dashboard's native window (falls back to a browser) |
+| `azure` | add `[azure]` to the URL | Key Vault-backed secrets |
+
+```bash
+# with an extra
+pip install "jizo[db] @ git+https://github.com/kuuraskii/Jizo.git"
+```
 
 Then import from one place — `jizo` — and never from `backend`:
 

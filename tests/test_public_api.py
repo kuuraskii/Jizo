@@ -216,6 +216,39 @@ def test_the_heavy_libraries_are_declared_as_extras():
         assert package in declared, f"{package} must be in the [{extra}] extra"
 
 
+def test_the_install_instructions_do_not_point_at_the_wrong_package():
+    """`pip install jizo` installs someone else's package, not ours.
+
+    The distribution name `jizo` is taken on PyPI by an unrelated 1 KB
+    placeholder published in February 2025. On Python 3.11 it does not even
+    install - that package declares it needs >= 3.12. So a README saying
+    `pip install jizo` would hand a third party the wrong code and let them
+    conclude JIZO is broken.
+
+    The supported route is a direct reference to this repository.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "git+https://github.com/kuuraskii/Jizo.git" in readme, (
+        "the README should document installing straight from GitHub"
+    )
+
+    # Flag only lines that install the `jizo` package itself and name no
+    # source. Other install commands in the README (`pip install -r
+    # requirements-gui.txt`) are fine and are not our business here.
+    bare = [
+        line.strip()
+        for line in readme.splitlines()
+        if line.strip().startswith("pip install")
+        and "jizo" in line
+        and "git+https://github.com/kuuraskii/Jizo" not in line
+    ]
+    assert not bare, (
+        "these lines would install a stranger's package from PyPI:\n  "
+        + "\n  ".join(bare)
+    )
+
+
 def test_the_package_declares_the_types_it_ships():
     """PEP 561: without the marker, consumers get no types at all."""
     assert (ROOT / "jizo" / "py.typed").exists()
