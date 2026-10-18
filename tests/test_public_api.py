@@ -217,36 +217,48 @@ def test_the_heavy_libraries_are_declared_as_extras():
 
 
 def test_the_install_instructions_do_not_point_at_the_wrong_package():
-    """`pip install jizo` installs someone else's package, not ours.
+    """`pip install jizo` installs a stranger's package, not ours.
 
-    The distribution name `jizo` is taken on PyPI by an unrelated 1 KB
-    placeholder published in February 2025. On Python 3.11 it does not even
-    install - that package declares it needs >= 3.12. So a README saying
-    `pip install jizo` would hand a third party the wrong code and let them
-    conclude JIZO is broken.
-
-    The supported route is a direct reference to this repository.
+    The name `jizo` on PyPI belongs to an unrelated 1 KB placeholder
+    published in February 2025 by another user, and PyPI names cannot be
+    re-registered once taken. It also ships a top-level `jizo` package, so it
+    would collide with ours. A README printing that command would hand a third
+    party the wrong code and let them conclude JIZO is broken.
     """
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "git+https://github.com/kuuraskii/Jizo.git" in readme, (
-        "the README should document installing straight from GitHub"
+    # Ours: the renamed distribution, or an explicit reference to this repo.
+    assert "pip install jizo-resilience" in readme, (
+        "the README should document the real distribution name"
     )
 
-    # Flag only lines that install the `jizo` package itself and name no
-    # source. Other install commands in the README (`pip install -r
-    # requirements-gui.txt`) are fine and are not our business here.
-    bare = [
+    # Consider only copy-pasteable command lines - ones that *start* with
+    # `pip install`. Mentioning the broken form in prose is how we explain
+    # why it is broken, and that is fine.
+    foreign = [
         line.strip()
         for line in readme.splitlines()
         if line.strip().startswith("pip install")
         and "jizo" in line
+        and "jizo-resilience" not in line
         and "git+https://github.com/kuuraskii/Jizo" not in line
     ]
-    assert not bare, (
-        "these lines would install a stranger's package from PyPI:\n  "
-        + "\n  ".join(bare)
+    assert not foreign, (
+        "these lines would install the other `jizo` package from PyPI:\n  "
+        + "\n  ".join(foreign)
     )
+
+
+def test_the_distribution_name_is_not_the_taken_one():
+    """The published name must be `jizo-resilience`, and the import `jizo`.
+
+    Guards the pairing: renaming the distribution is fine, letting it drift
+    back to `jizo` would point users at someone else's package.
+    """
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["name"] == "jizo-resilience"
+    assert jizo.__name__ == "jizo", "the import name is not the distribution name"
 
 
 def test_the_package_declares_the_types_it_ships():

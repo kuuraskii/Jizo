@@ -1,0 +1,97 @@
+name: publish to PyPI
+
+# Publishing uses PyPI *trusted publishing*: this workflow authenticates to
+# PyPI with a short-lived OIDC token that GitHub mints on the fly. There is no
+# API token in this repository, no secret to leak, and no token to rotate.
+#
+# To publish:
+#   1. Make sure the PyPI-side setup in docs/PUBLISHING.md is done.
+#   2. Tag and push a release:  git tag v0.1.0 && git push origin v0.1.0
+#
+# The test job runs first. If the suite is red, nothing is published - there is
+# no point putting a broken build on PyPI where it is much harder to undo.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:          # manual retry without cutting another tag
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (gate)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: resilient
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d resilient"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
+      - run: python -m backend.seed
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
+      - run: python -m pytest -q
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/resilient
+
+  build:
+    name: build distributions
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the wheel and the source tarball
+        run: |
+          pip install --upgrade pip build
+          python -m build
+
+      # A wheel whose name is wrong is the kind of mistake that is invisible
+      # until somebody tries to install it, so fail here instead.
+      - name: Check what we actually built
+        run: |
+          ls -l dist/
+          test -f dist/jizo_resilience-*.whl
+          test -f dist/jizo_resilience-*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    # The `id-token: write` permission is what lets GitHub mint the OIDC token
+    # PyPI trusts. The environment must match the one registered in PyPI.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/jizo-resilience
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

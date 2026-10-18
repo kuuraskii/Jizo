@@ -3,16 +3,23 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# The distribution name and the import name are both `jizo` today, but they do
-# not have to stay that way. The `jizo` name on PyPI is taken by an unrelated
-# 1 KB placeholder (published Feb 2025, and it declares Python >= 3.12, so it
-# will not even install on the 3.11 this package supports). Until we publish
-# under a free name, the supported install is straight from this repository:
+# The distribution name and the import name are deliberately different:
 #
-#     pip install "jizo @ git+https://github.com/kuuraskii/Jizo.git"
+#   pip install jizo-resilience      -> the distribution (PyPI)
+#   from jizo import resilient_get   -> the import (unchanged)
 #
-# A test guards that the README never reverts to a bare `pip install jizo`.
-name = "jizo"
+# It cannot be plain `jizo`. That name is taken on PyPI by an unrelated 1 KB
+# placeholder belonging to Kaloyan Ivanov, published February 2025. PyPI names
+# are permanent - a name cannot be re-registered once taken - so the only route
+# to a bare `pip install jizo` would be that person handing over ownership,
+# which is not something to plan around.
+#
+# That stub is also a live hazard, and a quiet one. It ships an *empty*
+# top-level `jizo/__init__.py`, so installing it alongside this package
+# overwrites ours - verified on pip 26.2, where `from jizo import
+# resilient_get` then fails with an ImportError naming nothing useful. A test
+# guards the README so we never print that command ourselves.
+name = "jizo-resilience"
 description = "A resilience layer for code that depends on APIs you do not control - timeout, bounded retry, circuit breaker, bulkhead and fallback - plus a harness that proves the protection works."
 readme = "README.md"
 requires-python = ">=3.11"
