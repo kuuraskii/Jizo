@@ -11,7 +11,7 @@ breaking things at known failure timings and scoring the result.
 
 [![CI](https://github.com/kuuraskii/Jizo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kuuraskii/Jizo/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-433%20passing-00C853?style=flat-square&logo=pytest&logoColor=white)](#install)
+[![Tests](https://img.shields.io/badge/tests-558%20passing-00C853?style=flat-square&logo=pytest&logoColor=white)](#run-the-demo)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/license-MIT-F2C744?style=flat-square)](LICENSE)
@@ -142,6 +142,38 @@ same protection code; nothing is stubbed for the demo.
 
 ### Install
 
+Two different things, two different installs. Pick the one you need.
+
+#### Install the library
+
+```bash
+pip install jizo
+```
+
+That is the whole install. It pulls **`pydantic` and `httpx`, and nothing
+else** — no web framework, no database driver. Everything heavier is an extra
+you opt into:
+
+| Extra | Install | What it turns on |
+|---|---|---|
+| *(default)* | `pip install jizo` | The protection layer: breaker, retry, bulkhead, fallback |
+| `logging` | `pip install "jizo[logging]"` | `structlog` JSON logs (falls back to stdlib without it) |
+| `db` | `pip install "jizo[db]"` | The evidence store: migrations, persisted request logs |
+| `server` | `pip install "jizo[server]"` | The FastAPI service that exposes JIZO over HTTP |
+| `gui` | `pip install "jizo[gui]"` | The dashboard's native window (falls back to a browser) |
+| `azure` | `pip install "jizo[azure]"` | Key Vault-backed secrets |
+
+Then import from one place — `jizo` — and never from `backend`:
+
+```python
+from jizo import ApiPolicy, CircuitBreaker, resilient_get
+```
+
+The package is fully typed (ships `py.typed`), and names resolve lazily, so
+`from jizo import CircuitBreaker` does not drag in the database layer.
+
+#### Run the demo
+
 Needs **Python 3.11** and **Docker** (for the evidence database).
 
 ```bash
@@ -156,13 +188,11 @@ setup_venv.bat
 python -m pytest -q
 ```
 
-The only hard dependencies are `pydantic` (validation) and `pytest`.
-`structlog` is **optional** — the suite is green with it installed and with it
-absent. The DB-backed tests skip themselves if Postgres is not up, so a clean
-checkout can be verified in seconds:
+The DB-backed tests skip themselves if Postgres is not up, so a clean checkout
+can be verified in seconds:
 
 ```bash
-python -m pytest -q        # 433 tests
+python -m pytest -q        # 558 tests
 ```
 
 ### Start the stack

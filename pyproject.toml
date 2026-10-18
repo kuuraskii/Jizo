@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jizo"
+description = "A resilience layer for code that depends on APIs you do not control - timeout, bounded retry, circuit breaker, bulkhead and fallback - plus a harness that proves the protection works."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Team Praann (ID 60)" }]
+keywords = [
+    "resilience",
+    "circuit-breaker",
+    "retry",
+    "fallback",
+    "fault-injection",
+    "chaos-engineering",
+    "http-client",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking :: Monitoring",
+    "Typing :: Typed",
+]
+
+# The library itself. Two dependencies, deliberately: `pydantic` validates the
+# policy and evidence contracts, `httpx` makes the actual call. Everything the
+# demo needs on top of this lives in the extras below, so installing JIZO to
+# guard one HTTP call does not drag in a web framework or a database driver.
+dependencies = [
+    "pydantic>=2.7,<3",
+    "httpx>=0.27",
+]
+
+# The version is read from `jizo.__version__` (see [tool.setuptools.dynamic])
+# so there is exactly one place to bump it.
+dynamic = ["version"]
+
+[project.optional-dependencies]
+# Structured logging. JIZO works without it and falls back to stdlib logging.
+logging = ["structlog>=24.1"]
+
+# The evidence store: migrations, persisted request logs, breaker transitions.
+# Required by the demo app, the drill console and the dashboard.
+db = [
+    "sqlalchemy>=2.0.30",
+    "asyncpg>=0.29",
+    "greenlet>=3.0",
+    "alembic>=1.13",
+]
+
+# The FastAPI service that exposes JIZO over HTTP.
+server = [
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "websockets>=14",
+]
+
+# Key Vault-backed secrets. Optional - JIZO reads plain environment variables
+# by default and never requires a cloud credential to run.
+azure = [
+    "azure-identity>=1.17",
+    "azure-keyvault-secrets>=4.8",
+]
+
+# The dashboard's native window. Without it, JIZO falls back to a browser tab.
+gui = ["pywebview>=6.0"]
+
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+# `backend/` is the original package name. It stays put in the repository so the
+# team's existing imports and all 433 tests keep working unchanged, but the
+# install publishes it as `jizo._core` - a private, namespaced subpackage.
+# Shipping it under a top-level name like `backend` would collide with other
+# projects on the same machine, which is the exact problem the public `jizo`
+# name exists to solve.
+#
+# This works because every internal import in `backend/` is relative
+# (`from .schemas import ...`), so the package does not care what its parent
+# directory is called.
+packages = ["jizo", "jizo._core"]
+
+[tool.setuptools.package-dir]
+"jizo._core" = "backend"
+
+[tool.setuptools.package-data]
+# Ships the PEP 561 marker so consumers get types and inline completion.
+jizo = ["py.typed"]
+"jizo._core" = ["py.typed"]
+
+[tool.setuptools.dynamic]
+# Single source of truth for the version: `jizo.__version__`.
+version = { attr = "jizo.__version__" }
